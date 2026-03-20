@@ -9,11 +9,11 @@ import CorkShared
 import CorkTerminalFunctions
 import Foundation
 
-enum BrewPackageInfoLoadingError: LocalizedError
+public enum BrewPackageInfoLoadingError: LocalizedError
 {
     case didNotGetAnyTerminalOutput, standardErrorNotEmpty(presentError: String), couldNotConvertOutputToData, couldNotRetrievePackageFromOutput, couldNotDecodeOutput(presentError: String)
 
-    var errorDescription: String?
+    public var errorDescription: String?
     {
         switch self
         {
@@ -274,7 +274,7 @@ extension BrewPackage
 
     /// Load package details
     @MainActor
-    public func loadDetails() async throws -> BrewPackage.BrewPackageDetails
+    public func loadDetails() async throws(BrewPackageInfoLoadingError) -> BrewPackage.BrewPackageDetails
     {
         let decoder: JSONDecoder = {
             let decoder: JSONDecoder = .init()
@@ -329,6 +329,8 @@ extension BrewPackage
 
             throw BrewPackageInfoLoadingError.couldNotConvertOutputToData
         }
+        
+        AppConstants.shared.logger.debug("Converted package details JSON to parseable data. Data size: \(decodableData.count)")
 
         // MARK: - Decoding
 
