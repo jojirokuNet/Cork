@@ -92,11 +92,11 @@ public class UpdateProgressTracker: @MainActor TerminalOutputStreamable
                 switch self
                 {
                 case .downloading:
-                    ["Downloading"]
+                    ["Downloading", "Upgrading", "Fetching"]
                 case .pouring:
-                    ["Pouring"]
+                    ["Pouring", "Running installer"]
                 case .cleanup:
-                    ["cleanup"]
+                    ["cleanup", "Removing App", "Unlinking", "Uninstalling", "Purging"]
                 case .backingUp:
                     ["Backing App"]
                 case .linking:
