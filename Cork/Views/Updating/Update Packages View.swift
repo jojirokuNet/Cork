@@ -48,6 +48,8 @@ struct UpdatePackagesView: View
                     FinishedStageView()
                 case .erroredOut(let results):
                     ErroredOutStageView(errors: results)
+                case .completedWithUnexpectedOutputs(let unimplementedOutputs):
+                    CompletedwithUnexpectedOutputsStage(unexpectedOutputs: unimplementedOutputs)
                 case .noUpdatesAvailable:
                     NoUpdatesAvailableStageView()
                 }

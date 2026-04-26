@@ -36,6 +36,7 @@ public class UpdateProgressTracker: @MainActor TerminalOutputStreamable
         case updating(type: UpdatePackagesView.UpdateType)
         case finished
         case erroredOut(results: [UpdateProgressTracker.IndividualPackageUpdatingError])
+        case completedWithUnexpectedOutputs(unimplementedOutputs: [TerminalOutput])
         case noUpdatesAvailable
     }
 
@@ -64,7 +65,7 @@ public class UpdateProgressTracker: @MainActor TerminalOutputStreamable
         self.updateProgress = {
             switch updatingType
             {
-            case .partial(_):
+            case .partial:
                 return .init(totalItems: outdatedPackagesTrackerToUse.packagesMarkedForUpdating.count)
             case .complete:
                 return .init(totalItems: UpdateProgressTracker.UpdateProcessMatcher.StandardCases.allCases.count)

@@ -17,12 +17,15 @@ extension OutdatedPackagesTracker
 {
     @MainActor
     func updatePackages(
-        updateProgressTracker: UpdateProgressTracker
-    ) async
+        updateProgressTracker: UpdateProgressTracker,
+        fullUpdateStageTracker: UpdateAllPackagesView.FullUpdateStageTracker
+    ) async throws(UpdateAllPackagesView.CompleteUpdatingError)
     {
         let includeGreedyPackages: Bool = Defaults[.includeGreedyOutdatedPackages]
         
-        let totalCases: Int = UpdateProgressTracker.UpdateProcessMatcher.allCases.count
+        let totalCases: Int = UpdateProgressTracker.UpdateProcessMatcher.StandardCases.allCases.count
+        
+        let percentagePerOneStep: Double = Double(100/totalCases)
         
         /// The step number for switching update stages
         /// The number of packages that are being updated, divided by the number of process steps
@@ -32,36 +35,63 @@ extension OutdatedPackagesTracker
             totalItemsOfThisProgress: totalCases
         )
         
-        incrementalProgress.increment(byPercentage: 30)
+        // MARK: - Initialize the random progress trackers
+        // These are random because you never know how many outputs you might get per stage, and it's better to give the users somethig to look at
+        let downloadingStateProgress: Progress = .init(
+            parent: incrementalProgress,
+            percentageOfParentToTakeUp: percentagePerOneStep,
+            totalItemsOfThisProgress: .random(in: 20...50)
+        )
         
-        /*
+        let pouringStateProgress: Progress = .init(parent: incrementalProgress, percentageOfParentToTakeUp: percentagePerOneStep, totalItemsOfThisProgress: .random(in: 20...50))
+        
+        let cleanupStateProgress: Progress = .init(parent: incrementalProgress, percentageOfParentToTakeUp: percentagePerOneStep, totalItemsOfThisProgress: .random(in: 20...50))
+        
+        let backingUpStateProgress: Progress = .init(parent: incrementalProgress, percentageOfParentToTakeUp: percentagePerOneStep, totalItemsOfThisProgress: .random(in: 20...50))
+        
+        let linkingStateProgress: Progress = .init(parent: incrementalProgress, percentageOfParentToTakeUp: percentagePerOneStep, totalItemsOfThisProgress: .random(in: 20...50))
+        
+        // MARK: - Do the actual updating
+        
+        var consolidatedUnexpectedOutputs: [TerminalOutput] = .init()
+        
         for await output in shell(AppConstants.shared.brewExecutablePath, ["upgrade", includeGreedyPackages ? "--greedy" : ""])
         {
             updateProgressTracker.insertOutput(output)
             
-            output.match(as: UpdateProgressTracker.UpdateProcessMatcher.self) { standardOutputCase in
-                updateProgressTracker.fullUpdateStage = standardOutputCase
+            output.match(as: UpdateProgressTracker.UpdateProcessMatcher.self)
+            { standardOutputCase in
+                
+                self.appConstants.logger.debug("Matched \(output.description) as \(standardOutputCase)")
+                
+                fullUpdateStageTracker.currentStage = standardOutputCase
                 
                 switch standardOutputCase
                 {
                 case .downloading:
-                    updateProgressTracker.updateProgress = .discreteProgress(totalUnitCount: progressStep)
+                    downloadingStateProgress.increment(bySetNumber: .random(in: 1...3))
                 case .pouring:
-                    <#code#>
+                    pouringStateProgress.increment(bySetNumber: .random(in: 1...3))
                 case .cleanup:
-                    <#code#>
+                    cleanupStateProgress.increment(bySetNumber: .random(in: 1...3))
                 case .backingUp:
-                    <#code#>
+                    backingUpStateProgress.increment(bySetNumber: .random(in: 1...3))
                 case .linking:
-                    <#code#>
+                    linkingStateProgress.increment(bySetNumber: .random(in: 1...3))
                 }
             } onUnimplementedOutput:
             { unimplementedOutput in
                 self.appConstants.logger.info("Unimplemented output for updater: \(unimplementedOutput.description, privacy: .public)")
+                
+                consolidatedUnexpectedOutputs.append(unimplementedOutput)
             }
 
         }
-         */
+        
+        if !consolidatedUnexpectedOutputs.isEmpty
+        {
+            throw .containsUnexpectedOutputs(consolidatedUnexpectedOutputs)
+        }
     }
 }
 
