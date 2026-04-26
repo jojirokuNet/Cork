@@ -68,7 +68,7 @@ public class UpdateProgressTracker: @MainActor TerminalOutputStreamable
             case .partial:
                 return .init(totalItems: outdatedPackagesTrackerToUse.packagesMarkedForUpdating.count)
             case .complete:
-                return .init(totalItems: UpdateProgressTracker.UpdateProcessMatcher.StandardCases.allCases.count)
+                return .init(totalItems: 1)
             }
         }()
 
