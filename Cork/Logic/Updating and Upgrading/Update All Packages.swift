@@ -11,25 +11,57 @@ import Defaults
 import Foundation
 import SwiftUI
 import CorkModels
+import BetterProgress
 
 extension OutdatedPackagesTracker
 {
     @MainActor
     func updatePackages(
         updateProgressTracker: UpdateProgressTracker
-    ) async throws
+    ) async
     {
         let includeGreedyPackages: Bool = Defaults[.includeGreedyOutdatedPackages]
-
+        
+        let totalCases: Int = UpdateProgressTracker.UpdateProcessMatcher.allCases.count
+        
+        /// The step number for switching update stages
+        /// The number of packages that are being updated, divided by the number of process steps
+        let incrementalProgress: Progress = .init(
+            parent: updateProgressTracker.updateProgress,
+            percentageOfParentToTakeUp: 100,
+            totalItemsOfThisProgress: totalCases
+        )
+        
+        incrementalProgress.increment(byPercentage: 30)
+        
+        /*
         for await output in shell(AppConstants.shared.brewExecutablePath, ["upgrade", includeGreedyPackages ? "--greedy" : ""])
         {
             updateProgressTracker.insertOutput(output)
             
-            output.match(as: UpdateProgressTracker.UpdateProcessMatcher.self)
-            { standardOutput in
-                //self.currentStage = standardOutput
+            output.match(as: UpdateProgressTracker.UpdateProcessMatcher.self) { standardOutputCase in
+                updateProgressTracker.fullUpdateStage = standardOutputCase
+                
+                switch standardOutputCase
+                {
+                case .downloading:
+                    updateProgressTracker.updateProgress = .discreteProgress(totalUnitCount: progressStep)
+                case .pouring:
+                    <#code#>
+                case .cleanup:
+                    <#code#>
+                case .backingUp:
+                    <#code#>
+                case .linking:
+                    <#code#>
+                }
+            } onUnimplementedOutput:
+            { unimplementedOutput in
+                self.appConstants.logger.info("Unimplemented output for updater: \(unimplementedOutput.description, privacy: .public)")
             }
+
         }
+         */
     }
 }
 

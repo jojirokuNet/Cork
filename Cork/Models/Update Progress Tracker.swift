@@ -6,11 +6,11 @@
 //
 
 import CorkModels
+import CorkShared
 import CorkTerminalFunctions
 import FactoryKit
 import Foundation
 import SwiftUI
-import CorkShared
 
 @Observable @MainActor
 public class UpdateProgressTracker: @MainActor TerminalOutputStreamable
@@ -28,7 +28,7 @@ public class UpdateProgressTracker: @MainActor TerminalOutputStreamable
     let packageUpdatingType: UpdatePackagesView.UpdateType
 
     var updatingState: PackageUpdatingStage
-    
+
     var packageBeingCurrentlyUpdated: OutdatedPackage?
 
     enum PackageUpdatingStage
@@ -38,18 +38,17 @@ public class UpdateProgressTracker: @MainActor TerminalOutputStreamable
         case erroredOut(results: [UpdateProgressTracker.IndividualPackageUpdatingError])
         case noUpdatesAvailable
     }
-    
+
     public init(
         outdatedPackagesTrackerToUse: OutdatedPackagesTracker
-    ) {
+    )
+    {
         self.outputs = []
         self.packageBeingCurrentlyUpdated = nil
 
         self.outdatedPackagesTrackerToUse = outdatedPackagesTrackerToUse
-        
-        self.updateProgress = Progress(totalUnitCount: Int64(self.outdatedPackagesTrackerToUse.packagesMarkedForUpdating.count))
-        
-        self.packageUpdatingType = {
+
+        let updatingType: UpdatePackagesView.UpdateType = {
             if outdatedPackagesTrackerToUse.areAllOutdatedPackagesMarkedForUpdating
             {
                 return .complete
@@ -59,15 +58,27 @@ public class UpdateProgressTracker: @MainActor TerminalOutputStreamable
                 return .partial(packagesToUpdate: outdatedPackagesTrackerToUse.packagesMarkedForUpdating)
             }
         }()
+        
+        self.packageUpdatingType = updatingType
+
+        self.updateProgress = {
+            switch updatingType
+            {
+            case .partial(_):
+                return .init(totalItems: outdatedPackagesTrackerToUse.packagesMarkedForUpdating.count)
+            case .complete:
+                return .init(totalItems: UpdateProgressTracker.UpdateProcessMatcher.StandardCases.allCases.count)
+            }
+        }()
 
         self.updatingState = .updating(type: self.packageUpdatingType)
     }
-    
+
     // MARK: - Matchers
 
-    public enum UpdateProcessMatcher: TerminalOutputMatchable
+    public enum UpdateProcessMatcher: TerminalOutputMatchable, CaseIterable
     {
-        public enum StandardCases: LocalizedStringKey, CustomStringConvertible, TerminalOutputCase
+        public enum StandardCases: String, CustomStringConvertible, TerminalOutputCase
         {
             case downloading = "update-packages.detail-stage.downloading"
             case pouring = "update-packages.detail-stage.pouring"
@@ -94,19 +105,7 @@ public class UpdateProgressTracker: @MainActor TerminalOutputStreamable
 
             public var description: String
             {
-                switch self
-                {
-                case .downloading:
-                    return "Downloading"
-                case .pouring:
-                    return "Pouring"
-                case .cleanup:
-                    return "Cleanup"
-                case .backingUp:
-                    return "Backing Up"
-                case .linking:
-                    return "Linking"
-                }
+                return String(localized: String.LocalizationValue(rawValue))
             }
         }
 
@@ -130,7 +129,7 @@ public class UpdateProgressTracker: @MainActor TerminalOutputStreamable
 
     public enum IndividialPackageUpdatingStage: TerminalOutputMatchable
     {
-        public enum StandardCases: LocalizedStringKey, CustomStringConvertible, TerminalOutputCase
+        public enum StandardCases: CustomStringConvertible, TerminalOutputCase
         {
             case downloading
             case installingUpdate
@@ -154,11 +153,11 @@ public class UpdateProgressTracker: @MainActor TerminalOutputStreamable
                 switch self
                 {
                 case .downloading:
-                    return String(localized: "update-packages.detail-stage.downloading")
+                    return String(localized: String.LocalizationValue("update-packages.detail-stage.downloading"))
                 case .installingUpdate:
-                    return String(localized: "update-packages.detail-stage.installing-update")
+                    return String(localized: String.LocalizationValue("update-packages.detail-stage.installing-update"))
                 case .cleaningUp:
-                    return String(localized: "update-packages.detail-stage.cleanup")
+                    return String(localized: String.LocalizationValue("update-packages.detail-stage.cleanup"))
                 }
             }
         }
@@ -191,7 +190,7 @@ public class UpdateProgressTracker: @MainActor TerminalOutputStreamable
             }
         }
     }
-    
+
     public enum IndividualPackageUpdatingError: LocalizedError, Identifiable
     {
         public enum ImplementedError: LocalizedError
@@ -199,22 +198,21 @@ public class UpdateProgressTracker: @MainActor TerminalOutputStreamable
             case postInstallStepFailed(rawOutput: String)
             case terminalRequired
         }
-        
+
         case implemented(
             failedPackage: OutdatedPackage,
             error: ImplementedError
         )
-        
+
         case unimplemented(
             failedPackage: OutdatedPackage,
             rawOutput: String
         )
-        
+
         public var id: UUID
         {
             switch self
             {
-                
             case .implemented(let failedPackage, _):
                 return failedPackage.package.id
             case .unimplemented(let failedPackage, _):

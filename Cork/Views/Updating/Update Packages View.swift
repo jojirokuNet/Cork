@@ -27,7 +27,7 @@ struct UpdatePackagesView: View
         self.outdatedPackagesTrackerToUse = outdatedPackagesTrackerToUse
         _updateProgressTracker = State(initialValue: UpdateProgressTracker(outdatedPackagesTrackerToUse: outdatedPackagesTrackerToUse))
     }
-
+    
     var body: some View
     {
         NavigationStack
@@ -42,7 +42,7 @@ struct UpdatePackagesView: View
                     case .partial(let packagesToUpdate):
                         UpdateSomePackagesView(packagesToUpdate: packagesToUpdate)
                     case .complete:
-                        EmptyView()
+                        UpdateAllPackagesView()
                     }
                 case .finished:
                     FinishedStageView()
