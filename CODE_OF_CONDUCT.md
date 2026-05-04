@@ -9,7 +9,7 @@ Limited AI / LLM use is allowed. Please review the acceptable use cases:
 
 1) As a basis for your own code
 
-    a) The generated code must be reviewed by you or another person, who is not using AI / LLMs to do the review
+    a) The generated code must be reviewed by another person, who is not using AI / LLMs to do the review. **Self-reviewed LLM code is not allowed following too many people lying about reviewing it themselves**
 
     b) You must have reasonable experience as a programmer for the feature you want to implement through generated code
 
