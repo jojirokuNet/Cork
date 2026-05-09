@@ -102,11 +102,14 @@ Prerequisites:
 
 0. Enroll your account in the developer program at [https://developer.apple.com/](https://developer.apple.com/). You don't need a paid account, a free one works fine
 1. Install Xcode
-2. Add your Developer account to Xcode. To do so, in the Menu bar, click `Xcode → Settings`, and in the window that opens, click `Accounts`. You can add your account there
-3. After you add your account, it will appear in the list of Apple IDs on the left of the screen. Select your account there
-4. At the bottom of the screen, click `Manage Certificates...`
-5. On the bottom left, click the **+** icon and select `Apple Development`
-6. When a new item appears in the list called `Apple Development Certificates`, you can press `Done` to close the account manager
+2. In the Terminal, run the following command: `﻿sudo xcode-select -s /Application/Xcode.app`
+    
+    *This command allows the Terminal to interact with Xcode's Terminal features, which is necessary for Mise and Tuist to work.*
+3. Add your Developer account to Xcode. To do so, in the Menu bar, click `Xcode → Settings`, and in the window that opens, click `Accounts`. You can add your account there
+4. After you add your account, it will appear in the list of Apple IDs on the left of the screen. Select your account there
+5. At the bottom of the screen, click `Manage Certificates...`
+6. On the bottom left, click the **+** icon and select `Apple Development`
+7. When a new item appears in the list called `Apple Development Certificates`, you can press `Done` to close the account manager
 
 #### Installing Tuist and Its Prerequisites
 
