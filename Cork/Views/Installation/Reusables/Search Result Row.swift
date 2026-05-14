@@ -5,10 +5,10 @@
 //  Created by David Bureš on 12.02.2023.
 //
 
-import SwiftUI
+import CorkModels
 import CorkShared
 import Defaults
-import CorkModels
+import SwiftUI
 
 struct SearchResultRow: View, Sendable
 {
@@ -19,9 +19,15 @@ struct SearchResultRow: View, Sendable
 
     let searchedForPackage: BrewPackage
     let context: Self.Context
+
+    enum PackageDescriptionLoadingState: Equatable
+    {
+        case loading
+        case loaded(withResult: String)
+        case failed(withError: BrewPackage.DescriptionLoadingError)
+    }
     
-    @State private var description: String?
-    @State private var isCompatible: Bool?
+    @State private var packageDescriptionLoadingState: PackageDescriptionLoadingState = .loading
 
     @State private var isLoadingDescription: Bool = true
     @State private var descriptionParsingFailed: Bool = false
@@ -33,19 +39,19 @@ struct SearchResultRow: View, Sendable
             HStack(alignment: .center)
             {
                 SanitizedPackageName(package: searchedForPackage, shouldShowVersion: true)
-                
+
                 switch context
                 {
                 case .topPackages:
                     Spacer()
-                    
+
                     if let downloadCount = searchedForPackage.downloadCount
                     {
                         Text("add-package.top-packages.list-item-\(downloadCount)")
                             .foregroundStyle(.secondary)
                             .font(.caption)
                     }
-                    
+
                 case .searchResults:
                     if searchedForPackage.type == .formula
                     {
@@ -61,7 +67,8 @@ struct SearchResultRow: View, Sendable
                             PillTextWithLocalizableText(localizedText: "add-package.result.already-installed")
                         }
                     }
-                    
+
+                    /*
                     if let isCompatible
                     {
                         if !isCompatible
@@ -75,37 +82,41 @@ struct SearchResultRow: View, Sendable
                             }
                         }
                     }
+                     */
                 }
             }
 
             if showDescriptionsInSearchResults
             {
-                if !descriptionParsingFailed
-                { // Show this if the description got properly parsed
-                    if isLoadingDescription
-                    {
-                        Text("add-package.result.loading-description")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                    else
-                    {
-                        if let description
-                        {
-                            Text(description)
-                                .font(.caption)
-                        }
-                        else
-                        {
-                            NoDescriptionProvidedView()
-                        }
-                    }
-                }
-                else
-                { // Otherwise, tell the user the parsing failed
-                    Text("add-package.result.loading-failed")
+                switch packageDescriptionLoadingState {
+                case .loading:
+                    Text("add-package.result.loading-description")
                         .font(.caption)
-                        .foregroundColor(.orange)
+                        .foregroundColor(.secondary)
+                case .loaded(let result):
+                    Text(result)
+                        .font(.caption)
+                case .failed(let withError):
+                    switch withError {
+                    case .packageHasNoDescription:
+                        NoDescriptionProvidedView()
+                    case .outputHasUnexpectedFormat(let rawOutput):
+                        Text(rawOutput.description)
+                            .foregroundStyle(.orange)
+                    case .unexpectedNumberOfOutputs(let outputs):
+                        DisclosureGroup("add-package.result.description.too-many-outputs.dropdown-label")
+                        {
+                            List(outputs)
+                            { rawOutput in
+                                Text(rawOutput.description)
+                            }
+                            .listStyle(.bordered(alternatesRowBackgrounds: true))
+                            .frame(minHeight: 20)
+                        }
+
+                    case .regexConstructionFailed:
+                        Text(withError.localizedDescription)
+                    }
                 }
             }
         }
@@ -115,14 +126,9 @@ struct SearchResultRow: View, Sendable
             if showDescriptionsInSearchResults
             {
                 AppConstants.shared.logger.info("\(searchedForPackage.name(withPrecision: .precise), privacy: .auto) came into view")
-
-                if description == nil
+                
+                if self.packageDescriptionLoadingState == .loading
                 {
-                    defer
-                    {
-                        isLoadingDescription = false
-                    }
-
                     AppConstants.shared.logger.info("\(searchedForPackage.name(withPrecision: .precise), privacy: .auto) does not have its description loaded")
 
                     do
@@ -137,19 +143,19 @@ struct SearchResultRow: View, Sendable
                             downloadCount: nil
                         )
 
-                        do
+                        do throws(BrewPackage.DescriptionLoadingError)
                         {
-                            let parsedPackageInfo: BrewPackage.BrewPackageDetails = try await searchedForPackage.loadDetails()
+                            // let parsedPackageInfo: BrewPackage.BrewPackageDetails = try await searchedForPackage.loadDetails()
 
-                            description = parsedPackageInfo.description
+                            let loadedDescription: String = try await searchedForPackage.loadDescripton()
+                            
+                            self.packageDescriptionLoadingState = .loaded(withResult: loadedDescription)
 
-                            isCompatible = parsedPackageInfo.isCompatible
+                            // isCompatible = parsedPackageInfo.isCompatible
                         }
                         catch let descriptionParsingError
-                        { // This happens when a package doesn' have any description at all, hence why we don't display an error
-                            AppConstants.shared.logger.error("Failed while parsing searched-for package info: \(descriptionParsingError.localizedDescription, privacy: .public)")
-
-                            descriptionParsingFailed = true
+                        {
+                            self.packageDescriptionLoadingState = .failed(withError: descriptionParsingError)
                         }
                     }
                 }
@@ -160,8 +166,9 @@ struct SearchResultRow: View, Sendable
             }
         }
     }
-    
-    enum Context {
+
+    enum Context
+    {
         case searchResults
         case topPackages
     }
