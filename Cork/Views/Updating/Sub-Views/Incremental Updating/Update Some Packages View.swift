@@ -10,6 +10,7 @@ import CorkShared
 import CorkTerminalFunctions
 import FactoryKit
 import SwiftUI
+import BetterProgress
 
 struct UpdateSomePackagesView: View
 {
@@ -55,27 +56,33 @@ struct UpdateSomePackagesView: View
 
             for packageToUpdate in packagesToUpdate
             {
+                let numberOfItemsInPackageProgress: Int = 3
                 
-                let packageProgress: Progress = Progress(
-                    totalUnitCount: 3,
+                let packageProgress: Progress = .init(
                     parent: updateProgressTracker.updateProgress,
-                    pendingUnitCount: 1
+                    percentageOfParentToTakeUp: Double(100/packagesToUpdate.count),
+                    totalItemsOfThisProgress: numberOfItemsInPackageProgress
                 )
-                
-                packageProgress.completedUnitCount = 1
 
                 updateProgressTracker.packageBeingCurrentlyUpdated = packageToUpdate
                 
-                packageProgress.completedUnitCount = 2
+                packageProgress.increment(bySetNumber: 1)
 
+                let packageInstallStageProgress: Progress = .init(
+                    parent: packageProgress,
+                    percentageOfParentToTakeUp: 35,
+                    totalItemsOfThisProgress: 10
+                )
+                
                 let updatingResult: SinglePackageUpdatingResult = await outdatedPackagesTracker.updateSinglePackage(
                     packageToUpdate: packageToUpdate,
-                    updateProgressTracker: updateProgressTracker
+                    updateProgressTracker: updateProgressTracker,
+                    updateStageProgress: packageInstallStageProgress
                 )
 
                 consolidatedUpdateResults.append(updatingResult)
                 
-                packageProgress.completedUnitCount = 3
+                packageProgress.set(toPercentage: 100)
             }
             
             /// Extract only the failed updates from the results array

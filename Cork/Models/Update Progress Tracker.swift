@@ -145,7 +145,7 @@ public class UpdateProgressTracker: @MainActor TerminalOutputStreamable
                 case .installingUpdate:
                     ["Reinstalling", "Installing", "Pouring"]
                 case .cleaningUp:
-                    ["cleanup"]
+                    ["cleanup", "Uninstalling Cask", "Uninstalling Formula", "Removing App"]
                 }
             }
 

@@ -9,6 +9,7 @@ import CorkModels
 import CorkTerminalFunctions
 import Defaults
 import Foundation
+import CorkShared
 
 /// The error result for updating single packages - a package that threw the error, along with the error it threw
 // public typealias SinglePackageUpdatingErrorResult = (package: OutdatedPackage, error: OutdatedPackagesTracker.IndividualPackageUpdatingError)
@@ -24,7 +25,8 @@ extension OutdatedPackagesTracker
     /// - Returns: If successful, returns unimplemented cases for further review. If failed, returns the error case that caused the failure
     func updateSinglePackage(
         packageToUpdate: OutdatedPackage,
-        updateProgressTracker: UpdateProgressTracker
+        updateProgressTracker: UpdateProgressTracker,
+        updateStageProgress: Progress
     ) async -> SinglePackageUpdatingResult
     {
         let package = packageToUpdate.package
@@ -53,7 +55,11 @@ extension OutdatedPackagesTracker
             
             output.match(as: UpdateProgressTracker.IndividialPackageUpdatingStage.self)
             { standardCase in
+                AppConstants.shared.logger.debug("Matched update standard case: \(standardCase.description)")
                 consolidatedProcessResults.append(standardCase)
+                
+                updateStageProgress.increment(bySetNumber: 1)
+                
             } onErrorOutput: { errorCase in
                 switch errorCase
                 {
@@ -71,7 +77,8 @@ extension OutdatedPackagesTracker
                     )
                 }
             } onUnimplementedOutput: { unimplementedCase in
-
+                AppConstants.shared.logger.debug("Matched update unimplemented case: \(unimplementedCase.description)")
+                
                 switch unimplementedCase
                 {
                 case .standardOutput(let standardOutput):
