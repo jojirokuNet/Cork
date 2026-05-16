@@ -8,12 +8,13 @@
 import SwiftUI
 import CorkShared
 import CorkModels
+import FactoryKit
 
 struct UpdatePackageButton: View
 {
     
-    @Environment(AppState.self) var appState: AppState
-    @Environment(OutdatedPackagesTracker.self) var outdatedPackagesTracker: OutdatedPackagesTracker
+    @InjectedObservable(\.appState) var appState: AppState
+    @InjectedObservable(\.outdatedPackagesTracker) var outdatedPackagesTracker: OutdatedPackagesTracker
     
     let packageToUpdate: BrewPackage
     
@@ -26,7 +27,7 @@ struct UpdatePackageButton: View
     {
         Button
         {
-            appState.showSheet(ofType: .partialUpdate(packagesToUpdate: outdatedPackageFromTracker))
+            appState.showSheet(ofType: .update)
         } label: {
             Text("action.update-\(packageToUpdate.name(withPrecision: .precise))")
         }

@@ -9,19 +9,20 @@ import SwiftUI
 import CorkShared
 import Defaults
 import CorkModels
+import FactoryKit
 
 struct CasksSection: View
 {
     @Default(.sortPackagesBy) var sortPackagesBy: PackageSortingOptions
 
-    @Environment(AppState.self) var appState: AppState
+    @InjectedObservable(\.appState) var appState: AppState
     @Environment(BrewPackagesTracker.self) var brewPackagesTracker: BrewPackagesTracker
 
     let searchText: String
     
     private var areNoCasksInstalled: Bool
     {
-        if !appState.isLoadingCasks && brewPackagesTracker.numberOfInstalledCasks == 0
+        if !brewPackagesTracker.isBeingLoaded && brewPackagesTracker.numberOfInstalledCasks == 0
         {
             return true
         }
@@ -45,7 +46,7 @@ struct CasksSection: View
             }
             else
             {
-                if appState.isLoadingCasks
+                if brewPackagesTracker.isBeingLoaded
                 {
                     ProgressView()
                 }

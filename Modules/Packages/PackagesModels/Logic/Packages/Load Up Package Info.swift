@@ -9,11 +9,11 @@ import CorkShared
 import CorkTerminalFunctions
 import Foundation
 
-enum BrewPackageInfoLoadingError: LocalizedError
+public enum BrewPackageInfoLoadingError: LocalizedError
 {
     case didNotGetAnyTerminalOutput, standardErrorNotEmpty(presentError: String), couldNotConvertOutputToData, couldNotRetrievePackageFromOutput, couldNotDecodeOutput(presentError: String)
 
-    var errorDescription: String?
+    public var errorDescription: String?
     {
         switch self
         {
@@ -31,9 +31,9 @@ enum BrewPackageInfoLoadingError: LocalizedError
     }
 }
 
-extension BrewPackage
+public extension BrewPackage
 {
-    struct PackageCommandOutput: Codable
+    internal struct PackageCommandOutput: Codable
     {
         // MARK: - Formulae
 
@@ -274,7 +274,7 @@ extension BrewPackage
 
     /// Load package details
     @MainActor
-    public func loadDetails() async throws -> BrewPackage.BrewPackageDetails
+    func loadDetails() async throws(BrewPackageInfoLoadingError) -> BrewPackage.BrewPackageDetails
     {
         let decoder: JSONDecoder = {
             let decoder: JSONDecoder = .init()
@@ -283,7 +283,7 @@ extension BrewPackage
             return decoder
         }()
 
-        var rawOutput: TerminalOutput
+        var rawOutput: [TerminalOutput]
 
         switch type
         {
@@ -296,7 +296,7 @@ extension BrewPackage
 
         // MARK: - Error checking
 
-        guard !rawOutput.standardOutput.isEmpty
+        guard !rawOutput.containsErrors
         else
         {
             AppConstants.shared.logger.error("Did not get any terminal output from the package details loading function")
@@ -304,11 +304,11 @@ extension BrewPackage
             throw BrewPackageInfoLoadingError.didNotGetAnyTerminalOutput
         }
 
-        if !rawOutput.standardError.isEmpty
+        if rawOutput.containsErrors
         {
             AppConstants.shared.logger.warning("Standard error of the package details loading function is not empty. Will investigate if the error can be ignored.")
 
-            if rawOutput.standardError.range(of: "(T|t)reating.*as a (formula|cask)", options: .regularExpression) != nil
+            if rawOutput.standardErrors.joined().range(of: "(T|t)reating.*as a (formula|cask)", options: .regularExpression) != nil
             {
                 AppConstants.shared.logger.notice("The error of package details loading function was not serious enough to throw an error. Ignoring.")
             }
@@ -316,19 +316,21 @@ extension BrewPackage
             {
                 AppConstants.shared.logger.error("Error was serious enough to throw an error")
 
-                throw BrewPackageInfoLoadingError.standardErrorNotEmpty(presentError: rawOutput.standardError)
+                throw BrewPackageInfoLoadingError.standardErrorNotEmpty(presentError: rawOutput.standardErrors.joined())
             }
         }
 
-        AppConstants.shared.logger.debug("JSON output: \(rawOutput.standardOutput)")
+        AppConstants.shared.logger.debug("JSON output: \(rawOutput.standardOutputs)")
 
-        guard let decodableData: Data = rawOutput.standardOutput.data(using: .utf8, allowLossyConversion: false)
+        guard let decodableData: Data = rawOutput.getJsonFromOutput(failOnAnyErrorsPresent: false)
         else
         {
             AppConstants.shared.logger.error("Could not convert string of package details loading function to data")
 
             throw BrewPackageInfoLoadingError.couldNotConvertOutputToData
         }
+
+        AppConstants.shared.logger.debug("Converted package details JSON to parseable data. Data size: \(decodableData.count)")
 
         // MARK: - Decoding
 
@@ -347,7 +349,7 @@ extension BrewPackage
                     throw BrewPackageInfoLoadingError.couldNotRetrievePackageFromOutput
                 }
 
-                return .init(
+                return try .init(
                     name: formulaInfo.name,
                     description: formulaInfo.desc,
                     homepage: formulaInfo.homepage,
@@ -370,7 +372,7 @@ extension BrewPackage
                     throw BrewPackageInfoLoadingError.couldNotRetrievePackageFromOutput
                 }
 
-                return .init(
+                return try .init(
                     name: caskInfo.token,
                     description: caskInfo.desc,
                     homepage: caskInfo.homepage,
@@ -390,6 +392,118 @@ extension BrewPackage
             AppConstants.shared.logger.error("Failed while decoding package info: \(brewDetailsLoadingError)")
 
             throw BrewPackageInfoLoadingError.couldNotDecodeOutput(presentError: brewDetailsLoadingError.localizedDescription)
+        }
+    }
+
+    enum DescriptionLoadingError: LocalizedError, Equatable
+    {
+        case packageHasNoDescription
+        case outputHasUnexpectedFormat(rawOutput: TerminalOutput)
+        case unexpectedNumberOfOutputs(outputs: [TerminalOutput])
+        case regexConstructionFailed
+
+        public var errorDescription: String?
+        {
+            switch self
+            {
+            case .packageHasNoDescription:
+                return String(localized: "add-package.result.description-empty")
+            case .outputHasUnexpectedFormat(let rawOutput):
+                return String(localized: "add-package.result.description-unexpected-format.\(rawOutput.description)")
+            case .unexpectedNumberOfOutputs:
+                return String(localized: "add-package.result.description.too-many-outputs")
+            case .regexConstructionFailed:
+                return String(localized: "add.package.result.description.regex-construction-failed")
+            }
+        }
+    }
+
+    /// Load only the description for a particular package
+    @MainActor
+    func loadDescripton() async throws(DescriptionLoadingError) -> String
+    {
+        /// The matcher might not be needed, because the existence of a package is already validated by the search. No search result -> package doesn't exit
+        /*
+         enum DescriptionMatcher: TerminalOutputMatchable
+         {
+             typealias StandardCases = PassesOutputWithoutMatching
+
+             enum ErrorCases: TerminalOutputCase
+             {
+                 case packageNotFound
+
+                 var patterns: [String]
+                 {
+                     switch self
+                     {
+                     case .packageNotFound:
+                         ["No available"]
+                     }
+                 }
+             }
+
+             typealias IgnoredCases = IgnoresNoOutputs
+         }
+         */
+
+        let descriptionLookupResult: [TerminalOutput] = await shell(AppConstants.shared.brewExecutablePath, ["desc", self.name(withPrecision: .precise)])
+
+        AppConstants.shared.logger.debug("Raw terminal output for \(self.type.description)  : \(descriptionLookupResult)")
+
+        guard !descriptionLookupResult.isEmpty
+        else
+        {
+            AppConstants.shared.logger.info("Package \(self.name(withPrecision: .precise), privacy: .public) has no description")
+
+            throw .packageHasNoDescription
+        }
+
+        /// Make sure there is only one output, and get that output - it should be the description
+        guard descriptionLookupResult.count == 1, let extractedOutput = descriptionLookupResult.first
+        else
+        {
+            AppConstants.shared.logger.error("The description for package \(self.name(withPrecision: .precise), privacy: .public) doesn't have the correct format: \(descriptionLookupResult)")
+
+            throw .unexpectedNumberOfOutputs(outputs: descriptionLookupResult)
+        }
+
+        let splitDescriptionLookupResult = extractedOutput.description.split(separator: ":")
+
+        /// Check that the output got split into two parts - one with the package name repeated, the other with the actual description
+        guard splitDescriptionLookupResult.count == 2
+        else
+        {
+            AppConstants.shared.logger.error("Descripton for package \(self.name(withPrecision: .precise), privacy: .public) didn't have the expected character `:`.")
+
+            throw .outputHasUnexpectedFormat(rawOutput: extractedOutput)
+        }
+
+        /// Get the last member of the array - should be the actual description, as everythig before the `:` character is just the name of the package repeated
+        guard let extractedDescriptionFromSplitResult = splitDescriptionLookupResult.last?.trimmingCharacters(in: .whitespacesAndNewlines)
+        else
+        {
+            AppConstants.shared.logger.error("Description for package \(self.name(withPrecision: .precise), privacy: .public) didn't have the expected last member")
+
+            throw .outputHasUnexpectedFormat(rawOutput: extractedOutput)
+        }
+
+        print("Extracted output: \(extractedDescriptionFromSplitResult)")
+        
+        switch self.type
+        {
+        case .formula:
+            print("Description lookup result: \(extractedDescriptionFromSplitResult)")
+
+            return String(extractedDescriptionFromSplitResult)
+            
+        /// If the package is Cask, we have to do an additional split
+        /// The remaining text looks like `(cask name) [Description]`, so we have to remove the parentheses
+        case .cask:
+            let removalRegex: Regex = /^\s*\([^)]+\)(?:,\s*\([^)]+\))*\s*/
+
+            let finalDescription = extractedDescriptionFromSplitResult.replacing(removalRegex, with: "")
+
+            return finalDescription
         }
     }
 }

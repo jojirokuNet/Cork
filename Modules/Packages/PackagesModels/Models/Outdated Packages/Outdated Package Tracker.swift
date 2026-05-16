@@ -5,15 +5,19 @@
 //  Created by David Bureš on 15.03.2023.
 //
 
+import CorkShared
+import CorkTerminalFunctions
 import Defaults
 import DefaultsMacros
+import FactoryKit
 import Foundation
 import SwiftUI
 
-@MainActor
-@Observable
+@Observable @MainActor
 public class OutdatedPackagesTracker
 {
+    @Injected(\.appConstants) @ObservationIgnored public var appConstants
+
     @ObservableDefault(.displayOnlyIntentionallyInstalledPackagesByDefault) @ObservationIgnored var displayOnlyIntentionallyInstalledPackagesByDefault: Bool
 
     @ObservableDefault(.includeGreedyOutdatedPackages) @ObservationIgnored var includeGreedyOutdatedPackages: Bool
@@ -28,6 +32,9 @@ public class OutdatedPackagesTracker
         self.isCheckingForPackageUpdates = true
         self.outdatedPackages = .init()
     }
+
+    @ObservationIgnored
+    public var updateProcess: Process?
 
     public var isCheckingForPackageUpdates: Bool
 
@@ -130,7 +137,7 @@ public extension OutdatedPackagesTracker
     {
         return allDisplayableOutdatedPackages.filter { $0.updatingManagedBy == .selfUpdating }
     }
-    
+
     var areAllOutdatedPackagesMarkedForUpdating: Bool
     {
         return packagesMarkedForUpdating.count == allDisplayableOutdatedPackages.count

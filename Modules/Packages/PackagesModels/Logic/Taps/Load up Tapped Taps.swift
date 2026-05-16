@@ -8,13 +8,15 @@
 import Foundation
 import CorkShared
 
+public typealias BrewTaps = Set<Result<BrewTap, TapLoadingError>>
+
 public extension TapTracker
 {
     @MainActor
-    func loadUpTappedTaps() async throws(TapLoadingError) -> [BrewTap]
+    func loadUpTappedTaps() async throws(TapLoadingError) -> BrewTaps
     {
         
-        var finalAvailableTaps: [BrewTap] = .init()
+        var finalAvailableTaps: BrewTaps = .init()
 
         do
         {
@@ -43,7 +45,17 @@ public extension TapTracker
 
                         AppConstants.shared.logger.info("Full tap name: \(fullTapName)")
 
-                        finalAvailableTaps.append(BrewTap(name: fullTapName))
+                        do
+                        {
+                            let initializedTap: BrewTap = try .init(name: fullTapName)
+                            finalAvailableTaps.insert(.success(initializedTap))
+                        } catch let tapInitializationError {
+                            finalAvailableTaps.insert(
+                                .failure(.couldNotParseTapName(
+                                    errorDetails: tapInitializationError.localizedDescription)
+                                )
+                            )
+                        }
                     }
                 }
                 catch let tapFolderReadingError
@@ -52,23 +64,43 @@ public extension TapTracker
                 }
             }
 
-            let nonLocalBasicTaps: [BrewTap] = await withTaskGroup(of: BrewTap?.self)
+            let nonLocalBasicTaps: BrewTaps = await withTaskGroup(of: Result<BrewTap, TapLoadingError>.self)
             { taskGroup in
-                if finalAvailableTaps.filter({ $0.name == "homebrew/core" }).isEmpty
+                
+                let successfullyLoadedTaps: Set<BrewTap> = Set(finalAvailableTaps.compactMap { rawResult in
+                    if case .success(let success) = rawResult {
+                        return success
+                    }
+                    else
+                    {
+                        return nil
+                    }
+                })
+                
+                if successfullyLoadedTaps.filter({ $0 == .homebrewCore }).isEmpty
                 {
                     AppConstants.shared.logger.warning("Couldn't find homebrew/core in local taps")
+                    
                     taskGroup.addTask
                     {
                         let isCoreAdded: Bool = await self.checkIfTapIsAdded(tapToCheck: "homebrew/core")
                         if isCoreAdded
                         {
                             AppConstants.shared.logger.info("homebrew/core is added, but not in local taps")
-                            return BrewTap(name: "homebrew/core")
+                            
+                            do
+                            {
+                                return try .success(BrewTap(name: "homebrew/core"))
+                            }
+                            catch let tapLoadingError
+                            {
+                                return .failure(tapLoadingError as! TapLoadingError)
+                            }
                         }
                         else
                         {
                             AppConstants.shared.logger.warning("homebrew/core is not added and not in local taps")
-                            return nil
+                            return .failure(.couldNotReadTapFolderContents(errorDetails: "homebrew/core is not added and not in local taps"))
                         }
                     }
                 }
@@ -77,7 +109,7 @@ public extension TapTracker
                     AppConstants.shared.logger.info("Found homebrew/core in local taps")
                 }
 
-                if finalAvailableTaps.filter({ $0.name == "homebrew/cask" }).isEmpty
+                if successfullyLoadedTaps.filter({ $0 == .homebrewCask}).isEmpty
                 {
                     AppConstants.shared.logger.warning("Couldn't find homebrew/cask in local taps")
                     taskGroup.addTask
@@ -85,12 +117,17 @@ public extension TapTracker
                         let isCaskAdded: Bool = await self.checkIfTapIsAdded(tapToCheck: "homebrew/cask")
                         if isCaskAdded
                         {
-                            return BrewTap(name: "homebrew/cask")
+                            do
+                            {
+                                return try .success(BrewTap(name: "homebrew/cask"))
+                            } catch let tapLoadingError {
+                                return .failure(.couldNotReadTapFolderContents(errorDetails: tapLoadingError.localizedDescription))
+                            }
                         }
                         else
                         {
                             AppConstants.shared.logger.warning("homebrew/cask is not added and not in local taps")
-                            return nil
+                            return .failure(.couldNotReadTapFolderContents(errorDetails: "homebrew/cask is not added and not in local taps"))
                         }
                     }
                 }
@@ -99,22 +136,17 @@ public extension TapTracker
                     AppConstants.shared.logger.info("Found homebrew/cask in local taps")
                 }
 
-                var nonLocalBasicTapsInternal: [BrewTap] = .init()
+                var nonLocalBasicTapsInternal: BrewTaps = .init()
 
-                for await tap in taskGroup
+                for await tapResult in taskGroup
                 {
-                    if let tap = tap
-                    {
-                        nonLocalBasicTapsInternal.append(tap)
-                    }
+                    nonLocalBasicTapsInternal.insert(tapResult)
                 }
 
                 return nonLocalBasicTapsInternal
             }
 
-            finalAvailableTaps.append(contentsOf: nonLocalBasicTaps)
-
-            return finalAvailableTaps
+            return finalAvailableTaps.union(nonLocalBasicTaps)
         }
         catch let tapFolderReadingError
         {
@@ -126,7 +158,10 @@ public extension TapTracker
             }
             else
             {
-                return [.init(name: "homebrew/core"), .init(name: "homebrew/cask")]
+                return [
+                    .success(.homebrewCore),
+                    .success(.homebrewCask)
+                ]
             }
         }
     }

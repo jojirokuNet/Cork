@@ -7,10 +7,13 @@
 
 import SwiftUI
 import CorkModels
+import FactoryKit
 
 struct HomebrewServicesView: View
 {
     @Environment(\.controlActiveState) var controlActiveState: ControlActiveState
+    
+    @InjectedObservable(\.appState) var appState: AppState
 
     @Environment(AppDelegate.self) var appDelegate: AppDelegate
 
@@ -68,7 +71,7 @@ struct HomebrewServicesView: View
                 {
                     Button
                     {
-                        appDelegate.appState.showSheet(ofType: .fullUpdate)
+                        appState.showSheet(ofType: .update)
                         hasTriedToUpdateHomebrewThroughCork = true
                     } label: {
                         Text("action.update-homebrew")
@@ -141,7 +144,7 @@ struct HomebrewServicesView: View
         {
             try await servicesTracker.loadServices()
         }
-        catch let servicesLoadingError as HomebrewServiceLoadingError
+        catch let servicesLoadingError
         {
             switch servicesLoadingError
             {
@@ -150,10 +153,6 @@ struct HomebrewServicesView: View
             default:
                 servicesState.showError(.couldNotLoadServices(error: servicesLoadingError.localizedDescription))
             }
-        }
-        catch let servicesLoadingError
-        {
-            servicesState.showError(.couldNotLoadServices(error: servicesLoadingError.localizedDescription))
         }
     }
 }

@@ -7,11 +7,12 @@
 
 import SwiftUI
 import CorkModels
+import FactoryKit
 
 struct MenuBar_PackageUpdating: View
 {
-    @Environment(AppState.self) var appState: AppState
-    @Environment(OutdatedPackagesTracker.self) var outdatedPackagesTracker: OutdatedPackagesTracker
+    @InjectedObservable(\.appState) var appState: AppState
+    @InjectedObservable(\.outdatedPackagesTracker) var outdatedPackagesTracker: OutdatedPackagesTracker
 
     var body: some View
     {
@@ -26,7 +27,7 @@ struct MenuBar_PackageUpdating: View
             {
                 if let sanitizedSheetState = appState.sheetToShow
                 {
-                    if sanitizedSheetState != .fullUpdate || sanitizedSheetState != .partialUpdate(packagesToUpdate: .init())
+                    if sanitizedSheetState != .update
                     {
                         Menu
                         {
@@ -41,7 +42,7 @@ struct MenuBar_PackageUpdating: View
                         Button("navigation.upgrade-packages")
                         {
                             switchCorkToForeground()
-                            appState.showSheet(ofType: .fullUpdate)
+                            appState.showSheet(ofType: .update)
                         }
                     }
                     else

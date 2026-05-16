@@ -118,6 +118,26 @@ public struct BrewPackage: Identifiable, Equatable, Hashable, Codable, Sendable,
         self.isBeingModified = false
     }
     
+    public init(
+        minimalPackageFromName: String,
+        type: BrewPackage.PackageType
+    ) {
+        self.id = .init()
+        
+        self.internalName = .init(from: minimalPackageFromName)
+        self.type = type
+        
+        self.isTagged = false
+        self.isPinned = false
+        self.installedOn = nil
+        self.versions = .init()
+        self.url = .init(string: "")
+        self.installedIntentionally = false
+        self.sizeInBytes = 0
+        self.downloadCount = 0
+        self.isBeingModified = false
+    }
+    
     public var id: UUID
     private let internalName: BrewPackageName
 
@@ -330,19 +350,19 @@ public struct BrewPackage: Identifiable, Equatable, Hashable, Codable, Sendable,
         
         if self.isPinned
         {
-            let pinResult: TerminalOutput = await shell(AppConstants.shared.brewExecutablePath, ["unpin", self.name(withPrecision: .precise)])
+            let pinResult: [TerminalOutput] = await shell(AppConstants.shared.brewExecutablePath, ["unpin", self.name(withPrecision: .precise)])
 
-            if !pinResult.standardError.isEmpty
+            if pinResult.containsErrors
             {
-                AppConstants.shared.logger.error("Error pinning: \(pinResult.standardError, privacy: .public)")
+                AppConstants.shared.logger.error("Error pinning: \(pinResult.standardErrors, privacy: .public)")
             }
         }
         else
         {
-            let unpinResult: TerminalOutput = await shell(AppConstants.shared.brewExecutablePath, ["pin", self.name(withPrecision: .precise)])
-            if !unpinResult.standardError.isEmpty
+            let unpinResult: [TerminalOutput] = await shell(AppConstants.shared.brewExecutablePath, ["pin", self.name(withPrecision: .precise)])
+            if unpinResult.containsErrors
             {
-                AppConstants.shared.logger.error("Error unpinning: \(unpinResult.standardError, privacy: .public)")
+                AppConstants.shared.logger.error("Error unpinning: \(unpinResult.standardErrors, privacy: .public)")
             }
         }
 

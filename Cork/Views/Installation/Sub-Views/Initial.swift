@@ -9,6 +9,7 @@ import SwiftUI
 import CorkShared
 import Defaults
 import CorkModels
+import FactoryKit
 
 struct InstallationInitialView: View
 {
@@ -18,7 +19,7 @@ struct InstallationInitialView: View
     @Default(.enableDiscoverability) var enableDiscoverability: Bool
     @Default(.discoverabilityDaySpan) var discoverabilityDaySpan: DiscoverabilityDaySpans
 
-    @Environment(AppState.self) var appState: AppState
+    @InjectedObservable(\.appState) var appState: AppState
 
     @Environment(BrewPackagesTracker.self) var brewPackagesTracker: BrewPackagesTracker
 
@@ -79,7 +80,7 @@ struct InstallationInitialView: View
         {
             if enableDiscoverability
             {
-                ToolbarItemGroup(placement: .automatic)
+                ToolbarItemGroup(placement: .secondaryAction)
                 {
                     previewPackageButton
                     

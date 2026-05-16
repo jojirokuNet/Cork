@@ -11,7 +11,7 @@ import CorkTerminalFunctions
 
 enum HealthCheckError: LocalizedError
 {
-    case errorsThrownInStandardOutput
+    case errorsThrownInStandardOutput(errors: [String])
 
     var errorDescription: String?
     {
@@ -23,19 +23,22 @@ enum HealthCheckError: LocalizedError
     }
 }
 
-func performBrewHealthCheck() async throws -> TerminalOutput
+func performBrewHealthCheck() async throws(HealthCheckError)
 {
-    async let commandResult: TerminalOutput = await shell(AppConstants.shared.brewExecutablePath, ["doctor"])
+    let commandResult: [TerminalOutput] = await shell(AppConstants.shared.brewExecutablePath, ["doctor"])
 
-    await print(commandResult)
+    guard !commandResult.containsErrors else
+    {
+        
+        let stringsToExclude: [String] = ["Please note that these warnings are just used to help the Homebrew maintainers"]
 
-    if await commandResult.standardOutput == ""
-    {
-        return await commandResult
-    }
-    else
-    {
-        print("Homebrew health check error: \(await commandResult.standardOutput)")
-        throw HealthCheckError.errorsThrownInStandardOutput
+        let errorsWithoutUselessFluff: [String] = commandResult.standardErrors.filter
+        { string in
+            !string.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && stringsToExclude.allSatisfy { !string.contains($0) }
+        }
+        
+        AppConstants.shared.logger.error("Brew health check had errors, removing useless fluff: \(errorsWithoutUselessFluff)")
+        
+        throw .errorsThrownInStandardOutput(errors: errorsWithoutUselessFluff)
     }
 }

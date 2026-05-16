@@ -17,12 +17,18 @@ import SwiftUI
 import UserNotifications
 import CorkModels
 import CorkTerminalFunctions
+import CorkFeature_Brewfiles
+import FactoryKit
 
 @main
 struct CorkApp: App
 {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate: AppDelegate
 
+    @InjectedObservable(\.appState) var appState: AppState
+    @InjectedObservable(\.navigationManager) var navigationManager
+    @InjectedObservable(\.brewfileManager) var brewfileManager: BrewfileManager
+    
     @State var brewPackagesTracker: BrewPackagesTracker = .init()
     @State var tapTracker: TapTracker = .init()
 
@@ -30,7 +36,6 @@ struct CorkApp: App
 
     @State var topPackagesTracker: TopPackagesTracker = .init()
 
-    @State var updateProgressTracker: UpdateProgressTracker = .init()
     @State var outdatedPackagesTracker: OutdatedPackagesTracker = .init()
 
     @Default(.demoActivatedAt) var demoActivatedAt: Date?
@@ -84,11 +89,9 @@ struct CorkApp: App
                     LicensingView()
                         .interactiveDismissDisabled()
                 })
-                .environment(appDelegate.appState)
                 .environment(brewPackagesTracker)
                 .environment(tapTracker)
                 .environment(cachedDownloadsTracker)
-                .environment(updateProgressTracker)
                 .environment(outdatedPackagesTracker)
                 .environment(topPackagesTracker)
                 .modelContainer(for: [
@@ -101,7 +104,7 @@ struct CorkApp: App
 
                     if areNotificationsEnabled
                     {
-                        await appDelegate.appState.setupNotifications()
+                        await appState.setupNotifications()
                     }
                 }
                 .task
@@ -156,12 +159,12 @@ struct CorkApp: App
                 { _, newValue in // Remove the badge from the app icon if the user turns off notifications, put it back when they turn them back on
                     Task
                     {
-                        await appDelegate.appState.requestNotificationAuthorization()
+                        await appState.requestNotificationAuthorization()
 
-                        if appDelegate.appState.notificationEnabledInSystemSettings == true
+                        if appState.notificationEnabledInSystemSettings == true
                         {
-                            await appDelegate.appState.requestNotificationAuthorization()
-                            if appDelegate.appState.notificationAuthStatus == .denied
+                            await appState.requestNotificationAuthorization()
+                            if appState.notificationAuthStatus == .denied
                             {
                                 areNotificationsEnabled = false
                             }
@@ -295,7 +298,7 @@ struct CorkApp: App
             
             PackagePreview(packageToPreview: convertedMinimalPackage)
                 .navigationTitle(packageToPreview?.name ?? "")
-                .environment(appDelegate.appState)
+                .environment(appState)
                 .environment(brewPackagesTracker)
                 .environment(outdatedPackagesTracker)
         }
@@ -314,7 +317,7 @@ struct CorkApp: App
         Settings
         {
             SettingsView()
-                .environment(appDelegate.appState)
+                .environment(appState)
         }
         .windowResizability(.contentSize)
 
@@ -323,7 +326,7 @@ struct CorkApp: App
         MenuBarExtra("app-name", systemImage: outdatedPackagesTracker.allDisplayableOutdatedPackages.isEmpty ? "mug" : "mug.fill", isInserted: $showInMenuBar)
         {
             MenuBarItem()
-                .environment(appDelegate.appState)
+                .environment(appState)
                 .environment(brewPackagesTracker)
                 .environment(tapTracker)
                 .environment(cachedDownloadsTracker)
@@ -413,11 +416,11 @@ struct CorkApp: App
     {
         Button
         {
-            appDelegate.appState.navigationManager.dismissScreen()
+            navigationManager.dismissScreen()
         } label: {
             Label("action.go-to-status-page.menu-bar", systemImage: "house")
         }
-        .disabled(!appDelegate.appState.navigationManager.isAnyScreenOpened)
+        .disabled(!navigationManager.isAnyScreenOpened)
         Divider()
     }
 
@@ -426,26 +429,28 @@ struct CorkApp: App
     {
         AsyncButton
         {
-            do
+            do throws(BrewfileManager.BrewfileDumpingError)
             {
-                brewfileContents = try await exportBrewfile(appState: appDelegate.appState)
+                brewfileContents = try await brewfileManager.exportBrewfile(
+                    appState: appState
+                )
 
                 isShowingBrewfileExporter = true
             }
-            catch let brewfileExportError as BrewfileDumpingError
+            catch let brewfileExportError
             {
                 AppConstants.shared.logger.error("\(brewfileExportError)")
 
                 switch brewfileExportError
                 {
                 case .couldNotDetermineWorkingDirectory:
-                    appDelegate.appState.showAlert(errorToShow: .couldNotGetWorkingDirectory)
+                    appState.showAlert(errorToShow: .couldNotGetWorkingDirectory)
 
                 case .errorWhileDumpingBrewfile(let error):
-                    appDelegate.appState.showAlert(errorToShow: .couldNotDumpBrewfile(error: error))
+                    appState.showAlert(errorToShow: .couldNotDumpBrewfile(error: error))
 
                 case .couldNotReadBrewfile:
-                    appDelegate.appState.showAlert(errorToShow: .couldNotReadBrewfile(error: brewfileExportError.localizedDescription))
+                    appState.showAlert(errorToShow: .couldNotReadBrewfile(error: brewfileExportError.localizedDescription))
                 }
             }
         } label: {
@@ -455,7 +460,7 @@ struct CorkApp: App
 
         AsyncButton
         {
-            do
+            do throws(BrewfileManager.BrewfileReadingError)
             {
                 let picker: NSOpenPanel = .init()
                 picker.allowsMultipleSelection = false
@@ -467,34 +472,39 @@ struct CorkApp: App
                     guard let brewfileURL = picker.url
                     else
                     {
-                        throw BrewfileReadingError.couldNotGetBrewfileLocation
+                        throw BrewfileManager.BrewfileReadingError.couldNotGetBrewfileLocation
                     }
 
                     AppConstants.shared.logger.debug("\(brewfileURL.path)")
 
-                    do
+                    do throws(BrewfileManager.BrewfileReadingError)
                     {
-                        try await importBrewfile(from: brewfileURL, appState: appDelegate.appState, brewPackagesTracker: brewPackagesTracker, cachedDownloadsTracker: cachedDownloadsTracker)
+                        try await brewfileManager.importBrewfile(
+                            from: brewfileURL,
+                            appState: appState,
+                            brewPackagesTracker: brewPackagesTracker,
+                            cachedDownloadsTracker: cachedDownloadsTracker
+                        )
                     }
                     catch let brewfileImportingError
                     {
                         AppConstants.shared.logger.error("\(brewfileImportingError.localizedDescription, privacy: .public)")
 
-                        appDelegate.appState.showAlert(errorToShow: .malformedBrewfile)
+                        appState.showAlert(errorToShow: .malformedBrewfile)
 
-                        appDelegate.appState.showSheet(ofType: .brewfileImport)
+                        appState.showSheet(ofType: .brewfileImport)
                     }
                 }
             }
-            catch let error as BrewfileReadingError
+            catch let error
             {
                 switch error
                 {
                 case .couldNotGetBrewfileLocation:
-                    appDelegate.appState.showAlert(errorToShow: .couldNotGetBrewfileLocation)
+                    appState.showAlert(errorToShow: .couldNotGetBrewfileLocation)
 
                 case .couldNotImportFile:
-                    appDelegate.appState.showAlert(errorToShow: .couldNotImportBrewfile)
+                    appState.showAlert(errorToShow: .couldNotImportBrewfile)
                 }
             }
         } label: {
@@ -510,7 +520,7 @@ struct CorkApp: App
 
         Button
         {
-            appDelegate.appState.isSearchFieldFocused = true
+            appState.isSearchFieldFocused = true
         } label: {
             Label("navigation.menu.search", systemImage: "magnifyingglass")
         }
@@ -520,20 +530,20 @@ struct CorkApp: App
     @ViewBuilder
     var packagesMenuBarSection: some View
     {
-        InstallPackageButton(appState: appDelegate.appState)
+        InstallPackageButton(appState: appState)
             .keyboardShortcut("n")
 
-        AddTapButton(appState: appDelegate.appState)
+        AddTapButton(appState: appState)
             .keyboardShortcut("n", modifiers: [.command, .option])
 
         Divider()
 
         CheckForOutdatedPackagesButton()
             .keyboardShortcut("r")
-            .environment(appDelegate.appState)
+            .environment(appState)
             .environment(outdatedPackagesTracker)
         
-        UpgradePackagesButton(appState: appDelegate.appState)
+        UpgradePackagesButton(appState: appState)
             .keyboardShortcut("r", modifiers: [.control, .command])        
     }
 
@@ -552,10 +562,10 @@ struct CorkApp: App
     @ViewBuilder
     var maintenanceMenuBarSection: some View
     {
-        OpenMaintenanceSheetButton(appState: appDelegate.appState, labelType: .performMaintenance)
+        OpenMaintenanceSheetButton(appState: appState, labelType: .performMaintenance)
             .keyboardShortcut("m", modifiers: [.command, .shift])
 
-        DeleteCachedDownloadsButton(appState: appDelegate.appState)
+        DeleteCachedDownloadsButton(appState: appState)
             .keyboardShortcut("m", modifiers: [.command, .option])
             .disabled(cachedDownloadsTracker.cachedDownloadsSize == 0)
     }
@@ -569,7 +579,7 @@ struct CorkApp: App
             {
                 demoActivatedAt = nil
                 hasValidatedEmail = false
-                appDelegate.appState.licensingState = .notBoughtOrHasNotActivatedDemo
+                appState.licensingState = .notBoughtOrHasNotActivatedDemo
                 hasFinishedLicensingWorkflow = false
             } label: {
                 Text("debug.action.reset-license-state")
@@ -579,7 +589,7 @@ struct CorkApp: App
             {
                 demoActivatedAt = nil
                 hasValidatedEmail = false
-                appDelegate.appState.licensingState = .demo
+                appState.licensingState = .demo
                 hasFinishedLicensingWorkflow = false
             } label: {
                 Text("debug.action.activate-demo")
@@ -682,9 +692,9 @@ struct CorkApp: App
 
             Task
             {
-                var updateResult: TerminalOutput = await shell(AppConstants.shared.brewExecutablePath, ["update"])
+                var updateResult: [TerminalOutput] = await shell(AppConstants.shared.brewExecutablePath, ["update"])
 
-                AppConstants.shared.logger.debug("Update result:\nStandard output: \(updateResult.standardOutput, privacy: .public)\nStandard error: \(updateResult.standardError, privacy: .public)")
+                AppConstants.shared.logger.debug("Update result:\nStandard output: \(updateResult.standardOutputs, privacy: .public)\nStandard error: \(updateResult.standardErrors, privacy: .public)")
 
                 do
                 {
@@ -700,7 +710,7 @@ struct CorkApp: App
                     {
                         AppConstants.shared.logger.log("Will purge temporary update trackers")
 
-                        updateResult = .init(standardOutput: "", standardError: "")
+                        updateResult = .init()
                         newOutdatedPackages = .init()
                     }
 
@@ -746,15 +756,15 @@ struct CorkApp: App
     // MARK: - Licensing
     func handleLicensing()
     {
-        print("Licensing state: \(appDelegate.appState.licensingState)")
+        print("Licensing state: \(appState.licensingState)")
 
         #if SELF_COMPILED
             AppConstants.shared.logger.debug("Will set licensing state to Self Compiled")
-            appDelegate.appState.licensingState = .selfCompiled
+            appState.licensingState = .selfCompiled
         #else
             if !hasValidatedEmail
             {
-                if appDelegate.appState.licensingState != .selfCompiled
+                if appState.licensingState != .selfCompiled
                 {
                     if let demoActivatedAt
                     {

@@ -7,6 +7,7 @@
 
 import SwiftUI
 import CorkModels
+import FactoryKit
 
 struct OutdatedPackagesBox: View
 {
@@ -16,8 +17,8 @@ struct OutdatedPackagesBox: View
         case checkingForUpdates, showingOutdatedPackages, noUpdatesAvailable, erroredOut(reason: String)
     }
 
-    @Environment(AppState.self) var appState: AppState
-    @Environment(OutdatedPackagesTracker.self) var outdatedPackagesTracker: OutdatedPackagesTracker
+    @InjectedObservable(\.appState) var appState: AppState
+    @InjectedObservable(\.outdatedPackagesTracker) var outdatedPackagesTracker: OutdatedPackagesTracker
 
     @Binding var isOutdatedPackageDropdownExpanded: Bool
 

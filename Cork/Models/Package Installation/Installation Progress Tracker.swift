@@ -9,24 +9,23 @@ import Foundation
 import CorkShared
 import CorkModels
 import CorkTerminalFunctions
-import Defaults
 
 @Observable
-class InstallationProgressTracker
+class InstallationProgressTracker: @MainActor TerminalOutputStreamable
 {
-    var packageBeingInstalled: PackageInProgressOfBeingInstalled = .init(
-        package: .init(
-            rawName: "",
-            type: .formula,
-            installedOn: nil,
-            versions: [],
-            url: nil,
-            sizeInBytes: 0,
-            downloadCount: nil
-        ),
-        installationStage: .downloadingCask,
-        packageInstallationProgress: 0
-    )
+    func insertOutput(_ output: CorkTerminalFunctions.TerminalOutput) {
+        self.outputs.append(output)
+    }
+    
+    var outputs: [CorkTerminalFunctions.TerminalOutput] = .init()
+    
+    var standardOutputs: [CorkTerminalFunctions.TerminalOutput] = .init()
+    
+    var standardErrors: [CorkTerminalFunctions.TerminalOutput] = .init()
+    
+    var isStreamedOutputExpanded: Bool = false
+    
+    var packageBeingInstalled: PackageInProgressOfBeingInstalled = .init(package: .init(rawName: "", type: .formula, installedOn: nil, versions: [], url: nil, sizeInBytes: 0, downloadCount: nil), installationStage: .downloadingCask, packageInstallationProgress: 0)
 
     var numberOfPackageDependencies: Int = 0
     var numberInLineOfPackageCurrentlyBeingFetched: Int = 0
@@ -36,7 +35,7 @@ class InstallationProgressTracker
 
     private var showRealTimeTerminalOutputs: Bool
     {
-        Defaults[.showRealTimeTerminalOutputOfOperations]
+        UserDefaults.standard.bool(forKey: "showRealTimeTerminalOutputOfOperations")
     }
     
     deinit
@@ -54,13 +53,16 @@ class InstallationProgressTracker
     }
 
     @MainActor
-    func installPackage(using brewPackagesTracker: BrewPackagesTracker, cachedDownloadsTracker: CachedDownloadsTracker) async throws -> TerminalOutput
+    func installPackage(
+        using brewPackagesTracker: BrewPackagesTracker,
+        cachedDownloadsTracker: CachedDownloadsTracker
+    ) async throws -> [TerminalOutput]
     {
         let package: BrewPackage = packageBeingInstalled.package
 
         AppConstants.shared.logger.debug("Installing package \(package.name(withPrecision: .precise), privacy: .auto)")
 
-        var installationResult: TerminalOutput = .init(standardOutput: "", standardError: "")
+        var installationResult: [TerminalOutput] = .init()
 
         if package.type == .formula
         {
@@ -68,7 +70,7 @@ class InstallationProgressTracker
 
             let output: String = try await installFormula(using: brewPackagesTracker).joined(separator: "")
 
-            installationResult.standardOutput.append(output)
+            installationResult.append(.standardOutput(output))
 
             packageBeingInstalled.packageInstallationProgress = 10
 
@@ -103,7 +105,7 @@ class InstallationProgressTracker
 
         AppConstants.shared.logger.info("Package \(package.name(withPrecision: .precise), privacy: .public) is Formula")
 
-        let (stream, process): (AsyncStream<StreamedTerminalOutput>, Process) = shell(AppConstants.shared.brewExecutablePath, ["install", package.name(withPrecision: .precise)])
+        let (stream, process): (AsyncStream<TerminalOutput>, Process) = shell(AppConstants.shared.brewExecutablePath, ["install", package.name(withPrecision: .precise)])
         installationProcess = process
         for await output in stream
         {
@@ -115,7 +117,7 @@ class InstallationProgressTracker
 
                 if showRealTimeTerminalOutputs
                 {
-                    packageBeingInstalled.realTimeTerminalOutput.append(RealTimeTerminalLine(line: outputLine))
+                    packageBeingInstalled.realTimeTerminalOutput.append(RealTimeTerminalLine(line: output))
                 }
 
                 AppConstants.shared.logger.info("Does the line contain an element from the array? \(outputLine.containsElementFromArray(packageDependencies), privacy: .public)")
@@ -193,7 +195,7 @@ class InstallationProgressTracker
 
                 if showRealTimeTerminalOutputs
                 {
-                    packageBeingInstalled.realTimeTerminalOutput.append(RealTimeTerminalLine(line: errorLine))
+                    packageBeingInstalled.realTimeTerminalOutput.append(RealTimeTerminalLine(line: output))
                 }
 
                 if errorLine.contains("a password is required")
@@ -220,19 +222,19 @@ class InstallationProgressTracker
         AppConstants.shared.logger.info("Package is Cask")
         AppConstants.shared.logger.debug("Installing package \(package.name(withPrecision: .precise), privacy: .public)")
 
-        let (stream, process): (AsyncStream<StreamedTerminalOutput>, Process) = shell(AppConstants.shared.brewExecutablePath, ["install", package.name(withPrecision: .precise)])
+        let (stream, process): (AsyncStream<TerminalOutput>, Process) = shell(AppConstants.shared.brewExecutablePath, ["install", package.name(withPrecision: .precise)])
         installationProcess = process
         for await output in stream
         {
+            if showRealTimeTerminalOutputs
+            {
+                packageBeingInstalled.realTimeTerminalOutput.append(RealTimeTerminalLine(line: output))
+            }
+            
             switch output
             {
             case .standardOutput(let outputLine):
                 AppConstants.shared.logger.info("Output line: \(outputLine, privacy: .public)")
-
-                if showRealTimeTerminalOutputs
-                {
-                    packageBeingInstalled.realTimeTerminalOutput.append(RealTimeTerminalLine(line: outputLine))
-                }
 
                 if outputLine.contains("Downloading")
                 {
@@ -268,7 +270,7 @@ class InstallationProgressTracker
                 }
                 else if outputLine.contains("Purging files")
                 {
-                    AppConstants.shared.logger.info("Purging old version of cask \(package.name(withPrecision: .precise))")
+                    AppConstants.shared.logger.info("Purging old version of cask \(package.name(withPrecision: .precise), privacy: .public)")
 
                     packageBeingInstalled.installationStage = .installingCask
 
@@ -285,11 +287,6 @@ class InstallationProgressTracker
 
             case .standardError(let errorLine):
                 AppConstants.shared.logger.error("Line had error: \(errorLine, privacy: .public)")
-
-                if showRealTimeTerminalOutputs
-                {
-                    packageBeingInstalled.realTimeTerminalOutput.append(RealTimeTerminalLine(line: errorLine))
-                }
 
                 if errorLine.contains("a password is required")
                 {

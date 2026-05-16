@@ -9,6 +9,7 @@ import CorkShared
 import SwiftUI
 import Defaults
 import CorkModels
+import FactoryKit
 
 struct SidebarPackageRow: View
 {
@@ -16,13 +17,15 @@ struct SidebarPackageRow: View
 
     @Default(.enableSwipeActions) var enableSwipeActions: Bool
 
-    @Environment(AppState.self) var appState: AppState
+    @InjectedObservable(\.appState) var appState: AppState
+    @InjectedObservable(\.navigationManager) var navigationManager
+    
     @Environment(BrewPackagesTracker.self) var brewPackagesTracker: BrewPackagesTracker
-    @Environment(OutdatedPackagesTracker.self) var outdatedPackagesTracker: OutdatedPackagesTracker
+    @InjectedObservable(\.outdatedPackagesTracker) var outdatedPackagesTracker: OutdatedPackagesTracker
 
     var body: some View
     {
-        NavigationLink(value: AppState.NavigationManager.DetailDestination.package(package: package))
+        NavigationLink(value: NavigationManager.DetailDestination.package(package: package))
         {
             PackageListItem(packageItem: package)
         }

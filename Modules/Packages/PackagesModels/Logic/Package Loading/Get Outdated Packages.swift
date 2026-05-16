@@ -68,8 +68,8 @@ public extension OutdatedPackagesTracker
         /// ``Set<OutdatedPackage>`` that holds packages whose updates are managed by Homebrew, plus those that are not
         let outdatedPackagesGreedy: Set<OutdatedPackage> = try await getOutdatedPackagesInternal(brewPackagesTracker: brewPackagesTracker, forUpdatingType: .selfUpdating)
         
-        print("Contents of non-greedy update checker: \(try await outdatedPackagesNonGreedy.map{$0.package.name(withPrecision: .precise)}), \(try await outdatedPackagesNonGreedy.count)")
-        print("Contents of greedy update checker: \(try await outdatedPackagesGreedy.map{$0.package.name(withPrecision: .precise)}), \(try await outdatedPackagesGreedy.count)")
+        print("Contents of non-greedy update checker: \(outdatedPackagesNonGreedy.map{$0.package.name(withPrecision: .precise)}), \( outdatedPackagesNonGreedy.count)")
+        print("Contents of greedy update checker: \( outdatedPackagesGreedy.map{$0.package.name(withPrecision: .precise)}), \( outdatedPackagesGreedy.count)")
         
         /// This includes only those packages that are greedy
         let difference: Set<OutdatedPackage> = outdatedPackagesGreedy.subtracting(outdatedPackagesNonGreedy)
@@ -89,26 +89,26 @@ public extension OutdatedPackagesTracker
         
         // Then we can get the updating under way
         /// Introduces an empty argument in case the updating is non-greedy
-        let rawOutput: TerminalOutput = await shell(AppConstants.shared.brewExecutablePath, ["outdated", updatingType.argument, "--json=v2"])
+        let rawOutput: [TerminalOutput] = await shell(AppConstants.shared.brewExecutablePath, ["outdated", updatingType.argument, "--json=v2"])
 
         AppConstants.shared.logger.debug("""
         Output of outdated packages retrieval: 
-            Standard output: \(rawOutput.standardOutput)
-            Standard error: \(rawOutput.standardError)
+            Standard output: \(rawOutput.standardOutputs)
+            Standard error: \(rawOutput.standardErrors)
 """)
         
         // MARK: - Error checking
 
-        if rawOutput.standardError.contains("HOME must be set")
+        if rawOutput.contains("HOME must be set", in: .standardErrors)
         {
             AppConstants.shared.logger.error("Encountered HOME error")
             throw OutdatedPackageRetrievalError.homeNotSet
         }
 
-        if !rawOutput.standardError.isEmpty
+        if rawOutput.containsErrors
         {
-            AppConstants.shared.logger.error("Standard error for package updating is not empty: \(rawOutput.standardError)")
-            throw OutdatedPackageRetrievalError.otherError(rawOutput.standardError)
+            AppConstants.shared.logger.error("Standard error for package updating is not empty: \(rawOutput.standardErrors)")
+            throw OutdatedPackageRetrievalError.otherError(rawOutput.standardErrors.formatted(.list(type: .and)))
         }
 
         // MARK: - Decoding
@@ -122,7 +122,7 @@ public extension OutdatedPackagesTracker
 
         do
         {
-            guard let decodableOutput: Data = rawOutput.standardOutput.data(using: .utf8, allowLossyConversion: false)
+            guard let decodableOutput: Data = rawOutput.getJsonFromOutput(failOnAnyErrorsPresent: false)
             else
             {
                 AppConstants.shared.logger.error("Could not convert raw output of decoding function to data for the decoder")
@@ -133,8 +133,8 @@ public extension OutdatedPackagesTracker
 
             // MARK: - Outdated package matching
 
-            async let finalOutdatedFormulae: Set<OutdatedPackage> = await getOutdatedFormulae(from: rawDecodedOutdatedPackages.formulae, brewPackagesTracker: brewPackagesTracker, forUpdatingType: updatingType)
-            async let finalOutdatedCasks: Set<OutdatedPackage> = await getOutdatedCasks(from: rawDecodedOutdatedPackages.casks, brewPackagesTracker: brewPackagesTracker, forUpdatingType: updatingType)
+            async let finalOutdatedFormulae: Set<OutdatedPackage> = await OutdatedPackagesTracker.getOutdatedFormulae(from: rawDecodedOutdatedPackages.formulae, brewPackagesTracker: brewPackagesTracker, forUpdatingType: updatingType)
+            async let finalOutdatedCasks: Set<OutdatedPackage> = await OutdatedPackagesTracker.getOutdatedCasks(from: rawDecodedOutdatedPackages.casks, brewPackagesTracker: brewPackagesTracker, forUpdatingType: updatingType)
 
             return await finalOutdatedFormulae.union(finalOutdatedCasks)
         }
@@ -147,7 +147,7 @@ public extension OutdatedPackagesTracker
 
     // MARK: - Helper functions
 
-    private nonisolated
+    private static
     func getOutdatedFormulae(
         from intermediaryArray: [OutdatedPackageCommandOutput.Formulae],
         brewPackagesTracker: BrewPackagesTracker,
@@ -173,7 +173,7 @@ public extension OutdatedPackagesTracker
         return finalOutdatedFormulaTracker
     }
 
-    private nonisolated
+    private static
     func getOutdatedCasks(from intermediaryArray: [OutdatedPackageCommandOutput.Casks], brewPackagesTracker: BrewPackagesTracker, forUpdatingType updatingType: OutdatedPackage.PackageUpdatingType) async -> Set<OutdatedPackage>
     {
         var finalOutdatedCaskTracker: Set<OutdatedPackage> = .init()

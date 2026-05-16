@@ -5,36 +5,41 @@
 //  Created by David Bureš on 20.03.2024.
 //
 
-import Foundation
 import CorkShared
 import CorkTerminalFunctions
-
-enum HomebrewServiceLoadingError: LocalizedError
-{
-    case standardErrorNotEmpty(standardError: String), homebrewOutdated, standardErrorNotEmptyAndNoResultsInStandardOutput, couldNotEncodeString(String), servicesParsingFailed, otherError(String)
-
-    var errorDescription: String?
-    {
-        switch self
-        {
-        case .standardErrorNotEmpty(let standardError):
-            return String(localized: "error.services.loading.standard-error-not-empty.\(standardError)")
-        case .standardErrorNotEmptyAndNoResultsInStandardOutput:
-            return String(localized: "error.services.loading.no-output")
-        case .couldNotEncodeString(let string):
-            return String(localized: "error.services.loading.could-not-encode-string.\(string)")
-        case .servicesParsingFailed:
-            return String(localized: "error.services.loading.parsing-failed")
-        case .otherError(let string):
-            return String(localized: "error.services.loading.other-error.\(string)")
-        case .homebrewOutdated:
-            return String(localized: "error.services.loading.homebrew-outdated")
-        }
-    }
-}
+import Foundation
 
 extension ServicesTracker
 {
+    enum HomebrewServiceLoadingError: LocalizedError
+    {
+        case standardErrorNotEmpty(standardError: String)
+        case homebrewOutdated
+        case standardErrorNotEmptyAndNoResultsInStandardOutput
+        case couldNotEncodeString(String)
+        case servicesParsingFailed
+        case otherError(String)
+
+        var errorDescription: String?
+        {
+            switch self
+            {
+            case .standardErrorNotEmpty(let standardError):
+                return String(localized: "error.services.loading.standard-error-not-empty.\(standardError)")
+            case .standardErrorNotEmptyAndNoResultsInStandardOutput:
+                return String(localized: "error.services.loading.no-output")
+            case .couldNotEncodeString(let string):
+                return String(localized: "error.services.loading.could-not-encode-string.\(string)")
+            case .servicesParsingFailed:
+                return String(localized: "error.services.loading.parsing-failed")
+            case .otherError(let string):
+                return String(localized: "error.services.loading.other-error.\(string)")
+            case .homebrewOutdated:
+                return String(localized: "error.services.loading.homebrew-outdated")
+            }
+        }
+    }
+
     fileprivate struct ServiceCommandOutput: Codable
     {
         /// Name of the service
@@ -54,7 +59,7 @@ extension ServicesTracker
     }
 
     /// Load services into the service tracker
-    func loadServices() async throws
+    func loadServices() async throws(HomebrewServiceLoadingError)
     {
         let decoder: JSONDecoder = {
             let decoder: JSONDecoder = .init()
@@ -63,26 +68,27 @@ extension ServicesTracker
             return decoder
         }()
 
-        let rawOutput: TerminalOutput = await shell(AppConstants.shared.brewExecutablePath, ["services", "list", "--json"])
+        let rawOutput: [TerminalOutput] = await shell(AppConstants.shared.brewExecutablePath, ["services", "list", "--json"])
 
         // MARK: - Error checking
 
-        if !rawOutput.standardError.isEmpty
+        guard !rawOutput.containsErrors
+        else
         {
             AppConstants.shared.logger.error("Failed while loading up services: Standard Error not empty")
-            if rawOutput.standardError.contains("brew update")
+            if rawOutput.standardErrors.contains("brew update")
             {
-                throw HomebrewServiceLoadingError.homebrewOutdated
+                throw .homebrewOutdated
             }
             else
             {
-                throw HomebrewServiceLoadingError.standardErrorNotEmpty(standardError: rawOutput.standardError)
+                throw .standardErrorNotEmpty(standardError: rawOutput.standardErrors.formatted(.list(type: .and)))
             }
         }
 
         do
         {
-            guard let decodableData: Data = rawOutput.standardOutput.data(using: .utf8, allowLossyConversion: false)
+            guard let decodableData: Data = rawOutput.getJsonFromOutput(failOnAnyErrorsPresent: true)
             else
             {
                 AppConstants.shared.logger.error("Failed while converting services string to data")
@@ -90,11 +96,12 @@ extension ServicesTracker
             }
 
             /// Without this guard, the decoding throws, even if there was no error, just because the data is empty
-            guard !decodableData.isEmpty else
+            guard !decodableData.isEmpty
+            else
             {
                 return
             }
-            
+
             let rawDecodedServicesData: [ServiceCommandOutput] = try decoder.decode([ServiceCommandOutput].self, from: decodableData)
 
             var finalServices: Set<HomebrewService> = .init()

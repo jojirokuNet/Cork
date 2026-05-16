@@ -2,8 +2,8 @@ import ProjectDescription
 
 let settings = Environment.selfCompiled.getBoolean(default: false)
 
-let version: String = "1.7.5"
-let build: String = "113"
+let version: String = "2.0.0"
+let build: String = "114DEV"
 
 func corkTarget(configureWithSelfCompiled: Bool) -> ProjectDescription.Target {
     var additionalCompilationConditions = [String]()
@@ -36,6 +36,7 @@ func corkTarget(configureWithSelfCompiled: Bool) -> ProjectDescription.Target {
             .target(corkModelsTarget),
             .target(corkTerminalFunctionsTarget),
             .target(corkIntentsTarget),
+            .target(corkFeature_brewfiles),
             .external(name: "LaunchAtLogin"),
             .external(name: "DavidFoundation"),
             .external(name: "ApplicationInspector"),
@@ -43,6 +44,7 @@ func corkTarget(configureWithSelfCompiled: Bool) -> ProjectDescription.Target {
             .external(name: "FactoryKit"),
             .external(name: "Defaults"),
             .external(name: "DefaultsMacros"),
+            .external(name: "SwiftNavigation"),
             .package(product: "SwiftLintBuildToolPlugin", type: .plugin)
         ], settings: .settings(configurations: [
             .debug(
@@ -76,7 +78,8 @@ let corkSharedTarget: ProjectDescription.Target = .target(
     ],
     dependencies: [
         .external(name: "Defaults"),
-        .external(name: "FactoryKit")
+        .external(name: "FactoryKit"),
+        .external(name: "BetterProgress")
     ],
     settings: .settings(configurations: [
         .debug(
@@ -121,7 +124,7 @@ let corkTerminalFunctionsTarget: ProjectDescription.Target = .target(
     bundleId: "eu.davidbures.cork-terminal-functions",
     deploymentTargets: .macOS("14.0.0"),
     sources: [
-        "Modules/TerminalSupport/**/*.swift"
+        .glob("Modules/TerminalSupport/**/*.swift", excluding: ["Modules/TerminalSupport/Tests/**"])
     ],
     dependencies: [
         .target(corkSharedTarget),
@@ -138,6 +141,20 @@ let corkTerminalFunctionsTarget: ProjectDescription.Target = .target(
         )
     ])
 )
+let corkTerminalFunctionsTestsTarget: ProjectDescription.Target = .target(
+    name: "CorkTerminalFunctionsTests",
+    destinations: [.mac],
+    product: .unitTests,
+    bundleId: "eu.davidbures.cork-terminal-functions-tests",
+    deploymentTargets: .macOS("14.0.0"),
+    sources: [
+        "Modules/TerminalSupport/Tests/**/*.swift"
+    ],
+    dependencies: [
+        .target(corkTerminalFunctionsTarget)  // ← depend on the compiled library, not the app
+    ],
+)
+
 
 let corkModelsTarget: ProjectDescription.Target = .target(
     name: "CorkModels",
@@ -160,6 +177,7 @@ let corkModelsTarget: ProjectDescription.Target = .target(
         .external(name: "FactoryKit"),
         .external(name: "Defaults"),
         .external(name: "DefaultsMacros"),
+        .external(name: "SwiftNavigation")
     ],
     settings: .settings(configurations: [
         .debug(
@@ -185,6 +203,34 @@ let corkIntentsTarget: ProjectDescription.Target = .target(
     dependencies: [
         .target(corkSharedTarget),
         .external(name: "FactoryKit")
+    ],
+    settings: .settings(configurations: [
+        .debug(
+            name: "Debug",
+            xcconfig: .relativeToRoot("xcconfigs/Cork.xcconfig")
+        ),
+        .release(
+            name: "Release",
+            xcconfig: .relativeToRoot("xcconfigs/Cork.xcconfig")
+        )
+    ])
+)
+
+let corkFeature_brewfiles: ProjectDescription.Target = .target(
+    name: "CorkFeature_Brewfiles",
+    destinations: [.mac],
+    product: .staticLibrary,
+    bundleId: "eu.davidbures.cork-feature.brewfiles",
+    deploymentTargets: .macOS("14.0.0"),
+    sources: [
+        "Modules/Features/Brewfiles/**/*.swift"
+    ],
+    dependencies: [
+        .target(corkSharedTarget),
+        .target(corkModelsTarget),
+        .external(name: "FactoryKit"),
+        .external(name: "Defaults"),
+        .external(name: "DefaultsMacros"),
     ],
     settings: .settings(configurations: [
         .debug(
@@ -266,7 +312,9 @@ let project = Project(
         corkIntentsTarget,
         corkNotificationsTarget,
         corkHelpTarget,
-        corkTestsTarget
+        corkFeature_brewfiles,
+        corkTestsTarget,
+        corkTerminalFunctionsTestsTarget
     ]
 
 )

@@ -9,6 +9,8 @@ import CorkShared
 import SwiftUI
 import Defaults
 import CorkModels
+import FactoryKit
+import CorkFeature_Brewfiles
 
 struct StartPage: View
 {
@@ -28,11 +30,12 @@ struct StartPage: View
     @Environment(TapTracker.self) var tapTracker: TapTracker
 
     @Environment(CachedDownloadsTracker.self) var cachedDownloadsTracker: CachedDownloadsTracker
+    
+    @InjectedObservable(\.appState) var appState: AppState
 
-    @Environment(AppState.self) var appState: AppState
-
-    @Environment(UpdateProgressTracker.self) var updateProgressTracker: UpdateProgressTracker
-    @Environment(OutdatedPackagesTracker.self) var outdatedPackagesTracker: OutdatedPackagesTracker
+    @InjectedObservable(\.outdatedPackagesTracker) var outdatedPackagesTracker: OutdatedPackagesTracker
+    
+    @InjectedObservable(\.brewfileManager) var brewfileManager: BrewfileManager
 
     @State private var isOutdatedPackageDropdownExpanded: Bool = false
 
@@ -40,7 +43,7 @@ struct StartPage: View
 
     var startPageStage: StartPageStage
     {
-        if appState.isLoadingFormulae && appState.isLoadingCasks || appState.isLoadingTaps
+        if brewPackagesTracker.isBeingLoaded || tapTracker.isBeingLoaded
         {
             return .loading
         }
@@ -172,7 +175,12 @@ struct StartPage: View
 
                         Task
                         { @MainActor in
-                            try await importBrewfile(from: url, appState: appState, brewPackagesTracker: brewPackagesTracker, cachedDownloadsTracker: cachedDownloadsTracker)
+                            try await brewfileManager.importBrewfile(
+                                from: url,
+                                appState: appState,
+                                brewPackagesTracker: brewPackagesTracker,
+                                cachedDownloadsTracker: cachedDownloadsTracker
+                            )
                         }
                     }
                     else

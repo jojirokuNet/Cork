@@ -9,13 +9,14 @@ import SwiftUI
 import CorkShared
 import Defaults
 import CorkModels
+import FactoryKit
 
 struct FormulaeSection: View
 {
     @Default(.displayOnlyIntentionallyInstalledPackagesByDefault) var displayOnlyIntentionallyInstalledPackagesByDefault: Bool
     @Default(.sortPackagesBy) var sortPackagesBy: PackageSortingOptions
 
-    @Environment(AppState.self) var appState: AppState
+    @InjectedObservable(\.appState) var appState: AppState
     @Environment(BrewPackagesTracker.self) var brewPackagesTracker: BrewPackagesTracker
 
     let currentTokens: [PackageSearchToken]
@@ -23,7 +24,7 @@ struct FormulaeSection: View
     
     private var areNoFormulaeInstalled: Bool
     {
-        if !appState.isLoadingFormulae && brewPackagesTracker.numberOfInstalledFormulae == 0
+        if !brewPackagesTracker.isBeingLoaded && brewPackagesTracker.numberOfInstalledFormulae == 0
         {
             return true
         }
@@ -47,9 +48,9 @@ struct FormulaeSection: View
             }
             else
             {
-                if appState.isLoadingFormulae
+                if brewPackagesTracker.isBeingLoaded
                 {
-                    ProgressView()
+                    BrewPackagesTracker.loadingView
                 }
                 else
                 {

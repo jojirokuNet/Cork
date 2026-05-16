@@ -5,26 +5,246 @@
 //  Created by David Bureš - P on 28.10.2025.
 //
 
+import CorkShared
+import FactoryKit
 import Foundation
+import SwiftUI
 
-public struct BrewTap: Identifiable, Hashable, Sendable
+public extension BrewTap.BrewTapName
 {
-    public init(
-        name: String,
-        isBeingModified: Bool? = nil
-    ) {
-        self.id = .init()
-        self.name = name
-        self.isBeingModified = isBeingModified ?? false
-    }
+    static let homebrewCore: BrewTap.BrewTapName = .init(repo: .homebrew, tapName: "core")
+    static let homebrewCask: BrewTap.BrewTapName = .init(repo: .homebrew, tapName: "cask")
+}
+
+public extension BrewTap
+{
+    static let homebrewCore: BrewTap = .init(name: .homebrewCore)
+    static let homebrewCask: BrewTap = .init(name: .homebrewCask)
+}
+
+public final actor BrewTap: Identifiable, Hashable, ModifiableActor, LoadableActor
+{
+    @Injected(\.appConstants) var appConstants: AppConstants
     
-    public let id: UUID
-    public let name: String
+    public struct BrewTapName: Hashable, Equatable, Comparable, Sendable
+    {
+        public static func < (lhs: BrewTap.BrewTapName, rhs: BrewTap.BrewTapName) -> Bool
+        {
+            switch (lhs.repo, rhs.repo)
+            {
+                case (.external, .homebrew): /// Third party comes first
+                    return true
+
+                case (.homebrew, .external): /// First party comes last
+                    return false
+
+                case (.homebrew, .homebrew): /// Both first party - sort alphabetically
+                    return lhs.tapName < rhs.tapName
+
+                case (.external(let lhsRepoName), .external(let rhsRepoName)): /// Both third party - sort alphabetically by repo name first, then by tap name is needed
+                    if lhsRepoName != rhsRepoName
+                    {
+                        return lhsRepoName < rhsRepoName
+                    }
+
+                    return lhs.tapName < rhs.tapName
+            }
+        }
+        
+        public enum NameRetrievalPrecision: Sendable
+        {
+            /// All parts: `marsanne/cask`
+            case full
+
+            /// Name only: `marsanne`
+            case nameOnly
+        }
+
+        /// Whether the repo is first-party (`homebrew/[name]`) or third-party (`[anything]/[anything]`)
+        public enum BrewRepo: Hashable, Equatable, Sendable
+        {
+            /// First-party repo, resolves to `homebrew`
+            case homebrew
+            /// Third-party repo, resolves to whatever `name` is
+            case external(name: String)
+
+            var name: String
+            {
+                switch self
+                {
+                case .homebrew:
+                    return "homebrew"
+                case .external(let name):
+                    return name
+                }
+            }
+        }
+
+        let repoAddress: URL?
+        let repo: BrewRepo
+        let tapName: String
+
+        /// Initialize a tap name from components
+        public init(
+            repoAddress: URL? = nil,
+            repo: BrewRepo,
+            tapName: String
+        )
+        {
+            self.repoAddress = repoAddress
+            self.repo = repo
+            self.tapName = tapName
+        }
+
+        /// Errors that can happen during tap name initialization from ``String``
+        public enum BrewTapNameInitializationError: LocalizedError
+        {
+            /// The provided name didn't have exactly one slash
+            case wrongNumberOfSlashes
+
+            /// The splitting along the slash didn't produce two results
+            case invalidFormat
+        }
+
+        /// Initialize a tap name from its string representation (`marsanne/cask`), with an optional external repository
+        public init(
+            repoAddress: URL? = nil,
+            tapNameString: String,
+        ) throws(BrewTapNameInitializationError)
+        {
+            /// Tap name with unexpected characters removed (whitespace and any extra slashes surrounding the name)
+            let sanitizedTapString: String = tapNameString
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .trimmingCharacters(in: .init(charactersIn: "/"))
+
+            let splitTapString = sanitizedTapString.components(separatedBy: "/")
+
+            guard splitTapString.count == 2
+            else
+            {
+                throw .wrongNumberOfSlashes
+            }
+
+            if let repoName = splitTapString.first, let tapName = splitTapString.last
+            {
+                self.repoAddress = repoAddress
+
+                if repoName == "homebrew"
+                {
+                    self.repo = .homebrew
+                }
+                else
+                {
+                    self.repo = .external(name: repoName)
+                }
+
+                self.tapName = tapName
+            }
+            else
+            {
+                throw .invalidFormat
+            }
+        }
+    }
+
+    /// Initialize the tap from a name string, along with an optional external repo
+    public init(
+        externalRepo: URL? = nil,
+        name: String
+    ) throws(BrewTapName.BrewTapNameInitializationError)
+    {
+        self.nameInternal = try .init(repoAddress: externalRepo, tapNameString: name)
+
+        self.isBeingModified = false
+        self.isBeingLoaded = false
+    }
+
+    /// Initialize the tap with a chunked name
+    public init(
+        name: BrewTapName
+    )
+    {
+        self.nameInternal = name
+
+        self.isBeingModified = false
+        self.isBeingLoaded = false
+    }
+
+    public nonisolated let id: UUID = .init()
+
+    // Expose immutable, Sendable state nonisolated so it can be used from any context safely.
+    public nonisolated let nameInternal: BrewTapName
+
+    public nonisolated func name(
+        withPrecision precision: BrewTapName.NameRetrievalPrecision
+    ) -> String
+    {
+        if let externalAddress = self.nameInternal.repoAddress
+        {
+            switch precision
+            {
+            case .full:
+                return "\(externalAddress)/\(self.nameInternal.repo.name)/\(self.nameInternal.tapName)"
+            case .nameOnly:
+                return self.nameInternal.tapName
+            }
+        }
+        else
+        {
+            switch precision
+            {
+            case .full:
+                return "\(self.nameInternal.repo.name)/\(self.nameInternal.tapName)"
+            case .nameOnly:
+                return self.nameInternal.tapName
+            }
+        }
+    }
+
+    public nonisolated func getCompleteTapName() -> BrewTapName
+    {
+        return self.nameInternal
+    }
 
     public var isBeingModified: Bool
 
-    public mutating func changeBeingModifiedStatus()
+    public var isBeingLoaded: Bool
+
+    public func changeBeingModifiedStatus()
     {
         isBeingModified.toggle()
+    }
+
+    // MARK: - Fonformance functions
+
+    public nonisolated static func == (
+        lhs: BrewTap,
+        rhs: BrewTap
+    ) -> Bool
+    {
+        return lhs.nameInternal == rhs.nameInternal
+    }
+
+    public nonisolated func hash(into hasher: inout Hasher)
+    {
+        hasher.combine(self.nameInternal)
+    }
+}
+
+public extension BrewTap
+{
+    static var loadingView: some View
+    {
+        HStack(alignment: .center)
+        {
+            VStack(alignment: .center)
+            {
+                ProgressView
+                {
+                    Text("tap-details.loading")
+                }
+            }
+        }
+        .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity)
     }
 }

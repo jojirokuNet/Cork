@@ -12,59 +12,127 @@ import CorkTerminalFunctions
 import CorkModels
 import Defaults
 
-@MainActor
-func refreshPackages(_ updateProgressTracker: UpdateProgressTracker, outdatedPackagesTracker: OutdatedPackagesTracker) async -> PackageUpdateAvailability
+public extension OutdatedPackagesTracker
 {
-    let showRealTimeTerminalOutputs: Bool = Defaults[.showRealTimeTerminalOutputOfOperations]
-
-    for await output in shell(AppConstants.shared.brewExecutablePath, ["update"])
+    enum PackageUpdateAvailability: CustomStringConvertible
     {
-        switch output
+        case updatesAvailable, noUpdatesAvailable
+
+        public var description: String
         {
-        case .standardOutput(let outputLine):
-            AppConstants.shared.logger.log("Update function output: \(outputLine, privacy: .public)")
-
-            if showRealTimeTerminalOutputs
+            switch self
             {
-                updateProgressTracker.realTimeOutput.append(RealTimeTerminalLine(line: outputLine))
+            case .updatesAvailable: return "Updates available"
+            case .noUpdatesAvailable: return "No updates available"
             }
+        }
+    }
+    
+    enum PackageRefreshMatcher: TerminalOutputMatchable
+    {
+        public enum StandardCases: TerminalOutputCase
+        {
+            case alreadyUpToDate
+            case other
 
-            updateProgressTracker.updateProgress = updateProgressTracker.updateProgress + 0.1
-
-            if outdatedPackagesTracker.allDisplayableOutdatedPackages.isEmpty
+            public var patterns: [String]
             {
-                if outputLine.starts(with: "Already up-to-date")
+                switch self
                 {
-                    AppConstants.shared.logger.info("Inside update function: No updates available")
-                    return .noUpdatesAvailable
+                case .alreadyUpToDate:
+                    ["Already up-to-date"]
+                case .other:
+                    // Catch-all — any unrecognised stdout still increments progress
+                    [""]
                 }
             }
+        }
 
-        case .standardError(let errorLine):
+        public enum ErrorCases: TerminalOutputCase
+        {
+            case anotherUpdateInProgress
+            case emptyError
+            case updatedTap
+            case alreadyUpToDate
+            case noChecksumDefined
 
-            if showRealTimeTerminalOutputs
+            public var patterns: [String]
             {
-                updateProgressTracker.realTimeOutput.append(RealTimeTerminalLine(line: errorLine))
-            }
-
-            if errorLine.starts(with: "Another active Homebrew update process is already in progress") || errorLine == "Error: " || errorLine.contains("Updated [0-9]+ tap") || errorLine == "Already up-to-date" || errorLine.contains("No checksum defined")
-            {
-                updateProgressTracker.updateProgress = updateProgressTracker.updateProgress + 0.1
-                AppConstants.shared.logger.log("Ignorable update function error: \(errorLine, privacy: .public)")
-
-                return .noUpdatesAvailable
-            }
-            else
-            {
-                if !errorLine.contains("==> Updating Homebrew...")
+                switch self
                 {
-                    AppConstants.shared.logger.warning("Update function error: \(errorLine, privacy: .public)")
-                    updateProgressTracker.errors.append("Update error: \(errorLine)")
+                case .anotherUpdateInProgress:
+                    ["Another active Homebrew update process is already in progress"]
+                case .emptyError:
+                    ["Error: "]
+                case .updatedTap:
+                    ["Updated"]
+                case .alreadyUpToDate:
+                    ["Already up-to-date"]
+                case .noChecksumDefined:
+                    ["No checksum defined"]
+                }
+            }
+        }
+
+        public enum IgnoredCases: TerminalOutputCase
+        {
+            case updatingHomebrew
+
+            public var patterns: [String]
+            {
+                switch self
+                {
+                case .updatingHomebrew:
+                    ["==> Updating Homebrew..."]
                 }
             }
         }
     }
-    updateProgressTracker.updateProgress = Float(10) / Float(2)
+    
+    @MainActor
+    func refreshPackages(
+        updateProgressTracker: UpdateProgressTracker
+    ) async -> PackageUpdateAvailability
+    {
+        let showRealTimeTerminalOutputs: Bool = Defaults[.showRealTimeTerminalOutputOfOperations]
 
-    return .updatesAvailable
+        for await output in shell(AppConstants.shared.brewExecutablePath, ["update"])
+        {
+            AppConstants.shared.logger.log("Update function output: \(output.description, privacy: .public)")
+
+            if showRealTimeTerminalOutputs
+            {
+                updateProgressTracker.insertOutput(output)
+            }
+
+            if let result: PackageUpdateAvailability = output.match(as: PackageRefreshMatcher.self,
+                onStandardOutput: { matched in
+                    switch matched
+                    {
+                    case .alreadyUpToDate:
+                        guard self.allDisplayableOutdatedPackages.isEmpty
+                        else { return nil }
+
+                        AppConstants.shared.logger.info("Inside update function: No updates available")
+                        return .noUpdatesAvailable
+
+                    case .other:
+                        return nil
+                    }
+                },
+                onErrorOutput: { matched in
+                    return .noUpdatesAvailable
+                },
+                onUnimplementedOutput: { unimplemented in
+                    AppConstants.shared.logger.warning("Update function error: \(unimplemented.description, privacy: .public)")
+                updateProgressTracker.insertOutput(unimplemented)
+                    return nil
+                }
+            )
+            {
+                return result
+            }
+        }
+        return .updatesAvailable
+    }
 }

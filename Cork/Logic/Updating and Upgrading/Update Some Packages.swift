@@ -1,0 +1,104 @@
+//
+//  Update Some Packages.swift
+//  Cork
+//
+//  Created by David Bureš - P on 02.04.2026.
+//
+
+import CorkModels
+import CorkTerminalFunctions
+import Defaults
+import Foundation
+import CorkShared
+
+/// The error result for updating single packages - a package that threw the error, along with the error it threw
+// public typealias SinglePackageUpdatingErrorResult = (package: OutdatedPackage, error: OutdatedPackagesTracker.IndividualPackageUpdatingError)
+
+public typealias SinglePackageUpdatingResult = Result<[TerminalOutput], UpdateProgressTracker.IndividualPackageUpdatingError>
+
+extension OutdatedPackagesTracker
+{
+    /// Update a single package
+    ///
+    /// Internally, uses the `reinstall` Homebrew command
+    /// - Parameter packageToUpdate: Which package to update
+    /// - Returns: If successful, returns unimplemented cases for further review. If failed, returns the error case that caused the failure
+    func updateSinglePackage(
+        packageToUpdate: OutdatedPackage,
+        updateProgressTracker: UpdateProgressTracker,
+        updateStageProgress: Progress
+    ) async -> SinglePackageUpdatingResult
+    {
+        let package = packageToUpdate.package
+
+        let updateCommandArguments = {
+            switch package.type
+            {
+            case .formula:
+                return ["reinstall", package.name(withPrecision: .precise)]
+            case .cask:
+                return ["reinstall", "--cask", package.name(withPrecision: .precise)]
+            }
+        }()
+
+        let (stream, process): (AsyncStream<TerminalOutput>, Process) = shell(appConstants.brewExecutablePath, updateCommandArguments)
+
+        self.updateProcess = process
+
+        var consolidatedProcessResults: [UpdateProgressTracker.IndividialPackageUpdatingStage.StandardCases] = .init()
+        var processError: UpdateProgressTracker.IndividualPackageUpdatingError? = nil
+        var processUnimplementedCases: [TerminalOutput] = .init()
+
+        for await output in stream
+        {
+            updateProgressTracker.insertOutput(output)
+            
+            output.match(as: UpdateProgressTracker.IndividialPackageUpdatingStage.self)
+            { standardCase in
+                AppConstants.shared.logger.debug("Matched update standard case: \(standardCase.description)")
+                consolidatedProcessResults.append(standardCase)
+                
+                updateStageProgress.increment(bySetNumber: 1)
+                
+            } onErrorOutput: { errorCase in
+                switch errorCase
+                {
+                case .postInstallStepFailed:
+                    processError = .implemented(
+                        failedPackage: packageToUpdate,
+                        error: .postInstallStepFailed(
+                            rawOutput: output.description
+                        )
+                    )
+                case .terminalRequired:
+                    processError = .implemented(
+                        failedPackage: packageToUpdate,
+                        error: .terminalRequired
+                    )
+                }
+            } onUnimplementedOutput: { unimplementedCase in
+                AppConstants.shared.logger.debug("Matched update unimplemented case: \(unimplementedCase.description)")
+                
+                switch unimplementedCase
+                {
+                case .standardOutput(let standardOutput):
+                    processUnimplementedCases.append(unimplementedCase)
+                case .standardError(let standardError):
+                    processError = .unimplemented(
+                        failedPackage: packageToUpdate,
+                        rawOutput: standardError
+                    )
+                }
+            }
+        }
+
+        if let processError
+        {
+            return .failure(processError)
+        }
+        else
+        {
+            return .success(processUnimplementedCases)
+        }
+    }
+}

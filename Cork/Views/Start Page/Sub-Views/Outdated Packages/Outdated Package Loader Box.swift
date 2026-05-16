@@ -8,14 +8,15 @@
 import CorkShared
 import SwiftUI
 import CorkModels
+import FactoryKit
 
 struct OutdatedPackageLoaderBox: View
 {
-    @Environment(AppState.self) var appState: AppState
+    @InjectedObservable(\.appState) var appState: AppState
     
     @Environment(BrewPackagesTracker.self) var brewPackagesTracker: BrewPackagesTracker
     
-    @Environment(OutdatedPackagesTracker.self) var outdatedPackagesTracker: OutdatedPackagesTracker
+    @InjectedObservable(\.outdatedPackagesTracker) var outdatedPackagesTracker: OutdatedPackagesTracker
     
     @Binding var errorOutReason: String?
     
